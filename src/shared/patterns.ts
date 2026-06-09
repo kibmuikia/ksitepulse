@@ -1,0 +1,16 @@
+export const PATTERNS: Record<string, RegExp> = {
+  CORS_ERROR:        /CORS|cross-origin|Access-Control-Allow/i,
+  NETWORK_ERROR:     /fetch failed|network error|Failed to fetch/i,
+  RESOURCE_404:      /404|Not Found.*failed to load/i,
+  RESOURCE_5XX:      /\b(500|502|503|504)\b.*(?:server|error|gateway)/i,
+  REACT_ERROR:       /Minified React error|Hydration failed|ReactDOM.*error/i,
+  VUE_WARN:          /\[Vue warn\]/,
+  ANGULAR_ERROR:     /NG\d{4}|Angular.*ERROR/,
+  UNHANDLED_PROMISE: /UnhandledPromiseRejection/i,
+  CSP_VIOLATION:     /Content Security Policy|violated.*directive/i,
+  MIXED_CONTENT:     /Mixed Content|blocked.*insecure/i,
+  MEMORY_PRESSURE:   /out of memory|memory limit exceeded/i,
+  DEPRECATION:       /deprecated|will be removed in/i,
+  RUNTIME_ERROR:     /Uncaught (?:TypeError|ReferenceError|SyntaxError|RangeError)/,
+  AD_BLOCKED:        /ERR_BLOCKED_BY_CLIENT|adblock|ublock/i,
+};

@@ -2,3 +2,14 @@ docs/
 logs/
 .DS_Store
 .claude/
+
+# Build output
+dist/
+
+# Dependencies
+node_modules/
+
+# Sourcemaps (generated during build)
+*.js.map
+*.ts.map
+
