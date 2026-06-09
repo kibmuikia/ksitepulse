@@ -1,4 +1,15 @@
-// Content script — Phase 0 stub
-// Full implementation arrives in Phase 1 (consoleProxy, performanceObserver, errorCapture, MessageBatcher)
+import { MessageBatcher } from './MessageBatcher';
+import { installConsoleProxy } from './consoleProxy';
+import { installErrorCapture } from './errorCapture';
+import { installPerformanceObservers } from './performanceObserver';
 
-console.log('[ksitepulse] content script ready');
+// Guard against double-injection
+const w = window as unknown as Record<string, boolean>;
+if (!w.__kspInjected) {
+  w.__kspInjected = true;
+
+  const batcher = new MessageBatcher();
+  installConsoleProxy(batcher);
+  installErrorCapture(batcher);
+  installPerformanceObservers(batcher);
+}
