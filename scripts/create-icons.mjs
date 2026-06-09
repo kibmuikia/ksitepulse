@@ -13,11 +13,11 @@
  *   --help            Show usage
  */
 
-import { writeFileSync, mkdirSync } from 'fs';
-import { deflateSync } from 'zlib';
-import { join, dirname, resolve } from 'path';
-import { fileURLToPath } from 'url';
-import { parseArgs } from 'util';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { parseArgs } from 'node:util';
+import { deflateSync } from 'node:zlib';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = resolve(__dirname, '..');
@@ -26,11 +26,11 @@ const PROJECT_ROOT = resolve(__dirname, '..');
 
 const { values: args } = parseArgs({
   options: {
-    color: { type: 'string',  default: '00C896' },
-    sizes: { type: 'string',  default: '16,32,48,128' },
-    out:   { type: 'string',  default: 'public/icons' },
-    alpha: { type: 'string',  default: '255' },
-    help:  { type: 'boolean', default: false },
+    color: { type: 'string', default: '00C896' },
+    sizes: { type: 'string', default: '16,32,48,128' },
+    out: { type: 'string', default: 'public/icons' },
+    alpha: { type: 'string', default: '255' },
+    help: { type: 'boolean', default: false },
   },
   strict: false,
 });
@@ -54,18 +54,18 @@ function parseHex(hex) {
   const clean = hex.replace('#', '');
   if (!/^[0-9a-fA-F]{6}$/.test(clean)) throw new Error(`Invalid color: #${clean}`);
   return [
-    parseInt(clean.slice(0, 2), 16),
-    parseInt(clean.slice(2, 4), 16),
-    parseInt(clean.slice(4, 6), 16),
+    Number.parseInt(clean.slice(0, 2), 16),
+    Number.parseInt(clean.slice(2, 4), 16),
+    Number.parseInt(clean.slice(4, 6), 16),
   ];
 }
 
 const [R, G, B] = parseHex(args.color);
-const A = Math.max(0, Math.min(255, parseInt(args.alpha, 10)));
+const A = Math.max(0, Math.min(255, Number.parseInt(args.alpha, 10)));
 const RGBA_MODE = A < 255;
 
-const SIZES = args.sizes.split(',').map(s => {
-  const n = parseInt(s.trim(), 10);
+const SIZES = args.sizes.split(',').map((s) => {
+  const n = Number.parseInt(s.trim(), 10);
   if (Number.isNaN(n) || n < 1 || n > 512) throw new Error(`Invalid size: "${s.trim()}"`);
   return n;
 });
@@ -77,14 +77,14 @@ const OUT_DIR = resolve(PROJECT_ROOT, args.out);
 const CRC_TABLE = new Uint32Array(256);
 for (let i = 0; i < 256; i++) {
   let c = i;
-  for (let j = 0; j < 8; j++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1;
+  for (let j = 0; j < 8; j++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
   CRC_TABLE[i] = c;
 }
 
 function crc32(buf) {
-  let crc = 0xFFFFFFFF;
-  for (const b of buf) crc = CRC_TABLE[(crc ^ b) & 0xFF] ^ (crc >>> 8);
-  return (crc ^ 0xFFFFFFFF) >>> 0;
+  let crc = 0xffffffff;
+  for (const b of buf) crc = CRC_TABLE[(crc ^ b) & 0xff] ^ (crc >>> 8);
+  return (crc ^ 0xffffffff) >>> 0;
 }
 
 // ── PNG primitives ────────────────────────────────────────────────
@@ -124,17 +124,17 @@ function createSolidPNG(size, r, g, b, a = 255) {
   const channels = useAlpha ? 4 : 3;
 
   // PNG file signature — always these 8 bytes
-  const PNG_SIG = Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
+  const PNG_SIG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
   // IHDR: width(4) height(4) bitDepth(1) colorType(1) compression(1) filter(1) interlace(1)
   const ihdr = Buffer.alloc(13);
-  ihdr.writeUInt32BE(size, 0);       // width
-  ihdr.writeUInt32BE(size, 4);       // height
-  ihdr[8]  = 8;                      // bit depth: 8 bits per channel
-  ihdr[9]  = useAlpha ? 6 : 2;       // color type: 2=RGB, 6=RGBA
-  ihdr[10] = 0;                      // compression: deflate (only valid value)
-  ihdr[11] = 0;                      // filter: adaptive (only valid value)
-  ihdr[12] = 0;                      // interlace: none
+  ihdr.writeUInt32BE(size, 0); // width
+  ihdr.writeUInt32BE(size, 4); // height
+  ihdr[8] = 8; // bit depth: 8 bits per channel
+  ihdr[9] = useAlpha ? 6 : 2; // color type: 2=RGB, 6=RGBA
+  ihdr[10] = 0; // compression: deflate (only valid value)
+  ihdr[11] = 0; // filter: adaptive (only valid value)
+  ihdr[12] = 0; // interlace: none
 
   // sRGB chunk: rendering intent = Perceptual (0x00)
   // Declares pixels are in sRGB space; must appear before IDAT
@@ -148,7 +148,7 @@ function createSolidPNG(size, r, g, b, a = 255) {
     raw[base] = 0; // filter type: None
     for (let x = 0; x < size; x++) {
       const px = base + 1 + x * channels;
-      raw[px]     = r;
+      raw[px] = r;
       raw[px + 1] = g;
       raw[px + 2] = b;
       if (useAlpha) raw[px + 3] = a;

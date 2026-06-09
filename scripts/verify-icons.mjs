@@ -12,10 +12,10 @@
  *   --strict         Fail if sRGB chunk is absent (default: warn only)
  */
 
-import { readFileSync, existsSync } from 'fs';
-import { join, dirname, resolve } from 'path';
-import { fileURLToPath } from 'url';
-import { parseArgs } from 'util';
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { parseArgs } from 'node:util';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = resolve(__dirname, '..');
@@ -24,19 +24,19 @@ const PROJECT_ROOT = resolve(__dirname, '..');
 
 const { values: args } = parseArgs({
   options: {
-    sizes:  { type: 'string',  default: '16,32,48,128' },
-    out:    { type: 'string',  default: 'public/icons' },
+    sizes: { type: 'string', default: '16,32,48,128' },
+    out: { type: 'string', default: 'public/icons' },
     strict: { type: 'boolean', default: false },
   },
   strict: false,
 });
 
-const SIZES = args.sizes.split(',').map(s => parseInt(s.trim(), 10));
+const SIZES = args.sizes.split(',').map((s) => Number.parseInt(s.trim(), 10));
 const ICONS_DIR = resolve(PROJECT_ROOT, args.out);
 
 // ── PNG parsing helpers ───────────────────────────────────────────
 
-const PNG_SIG = Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
+const PNG_SIG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
 /** Read big-endian uint32 from buf at offset. */
 function readU32(buf, offset) {
@@ -64,11 +64,11 @@ function listChunks(buf) {
 function parseIHDR(buf, chunkOffset) {
   const dataStart = chunkOffset + 8; // skip length(4) + type(4)
   return {
-    width:      readU32(buf, dataStart),
-    height:     readU32(buf, dataStart + 4),
-    bitDepth:   buf[dataStart + 8],
-    colorType:  buf[dataStart + 9],  // 2=RGB, 3=Indexed, 4=Grayscale+A, 6=RGBA
-    interlace:  buf[dataStart + 12],
+    width: readU32(buf, dataStart),
+    height: readU32(buf, dataStart + 4),
+    bitDepth: buf[dataStart + 8],
+    colorType: buf[dataStart + 9], // 2=RGB, 3=Indexed, 4=Grayscale+A, 6=RGBA
+    interlace: buf[dataStart + 12],
   };
 }
 
@@ -105,7 +105,7 @@ for (const size of SIZES) {
 
   // 3. Parse chunks
   const chunks = listChunks(buf);
-  const chunkTypes = chunks.map(c => c.type);
+  const chunkTypes = chunks.map((c) => c.type);
 
   // 4. Required chunks: IHDR, IDAT, IEND in correct order
   if (chunkTypes[0] !== 'IHDR') issues.push('IHDR is not the first chunk');
@@ -113,16 +113,18 @@ for (const size of SIZES) {
   if (chunkTypes[chunkTypes.length - 1] !== 'IEND') issues.push('IEND is not the last chunk');
 
   // 5. IHDR content: expected NxN, 8-bit, RGB or RGBA, no interlace
-  const ihdrChunk = chunks.find(c => c.type === 'IHDR');
+  const ihdrChunk = chunks.find((c) => c.type === 'IHDR');
   let ihdr = null;
   if (ihdrChunk) {
     ihdr = parseIHDR(buf, ihdrChunk.offset);
 
-    if (ihdr.width !== size)  issues.push(`width ${ihdr.width} ≠ expected ${size}`);
+    if (ihdr.width !== size) issues.push(`width ${ihdr.width} ≠ expected ${size}`);
     if (ihdr.height !== size) issues.push(`height ${ihdr.height} ≠ expected ${size}`);
-    if (ihdr.bitDepth !== 8)  issues.push(`bit depth ${ihdr.bitDepth} (expected 8)`);
+    if (ihdr.bitDepth !== 8) issues.push(`bit depth ${ihdr.bitDepth} (expected 8)`);
     if (![2, 6].includes(ihdr.colorType)) {
-      issues.push(`color type ${ihdr.colorType} (${COLOR_TYPES[ihdr.colorType] ?? 'unknown'}) — expected RGB(2) or RGBA(6)`);
+      issues.push(
+        `color type ${ihdr.colorType} (${COLOR_TYPES[ihdr.colorType] ?? 'unknown'}) — expected RGB(2) or RGBA(6)`,
+      );
     }
     if (ihdr.interlace !== 0) warnings.push('interlaced PNG (not recommended for icons)');
   }
@@ -138,7 +140,9 @@ for (const size of SIZES) {
   if (buf.length < 67) issues.push(`file too small (${buf.length} bytes)`);
 
   // Report
-  const colorTypeStr = ihdr ? ` ${ihdr.width}×${ihdr.height} ${COLOR_TYPES[ihdr.colorType] ?? `type${ihdr.colorType}`}` : '';
+  const colorTypeStr = ihdr
+    ? ` ${ihdr.width}×${ihdr.height} ${COLOR_TYPES[ihdr.colorType] ?? `type${ihdr.colorType}`}`
+    : '';
   const srgbStr = hasSRGB ? ' sRGB✓' : '';
 
   if (issues.length > 0) {
