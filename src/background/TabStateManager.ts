@@ -39,7 +39,7 @@ export class TabStateManager {
 
   async addRequest(
     tabId: number,
-    req: Pick<RequestRecord, 'requestId' | 'url' | 'type' | 'timeStamp'>,
+    req: Pick<RequestRecord, 'requestId' | 'url' | 'type' | 'timeStamp' | 'method'>,
   ): Promise<void> {
     await this.mutate(tabId, (state) => {
       state.requests.push({ ...req, status: 'pending' });

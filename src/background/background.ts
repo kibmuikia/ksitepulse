@@ -47,10 +47,10 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 const pendingRequests = new Map<string, number>();
 
 chrome.webRequest.onBeforeRequest.addListener(
-  ({ requestId, url, type, tabId, timeStamp }) => {
+  ({ requestId, url, type, method, tabId, timeStamp }) => {
     if (tabId < 0) return;
     pendingRequests.set(requestId, timeStamp);
-    tabStateManager.addRequest(tabId, { requestId, url, type, timeStamp });
+    tabStateManager.addRequest(tabId, { requestId, url, type, method, timeStamp });
   },
   { urls: ['<all_urls>'] },
 );

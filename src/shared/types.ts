@@ -18,6 +18,7 @@ export interface TabState {
 export interface RequestRecord {
   requestId: string;
   url: string;
+  method?: string;
   type: string;
   timeStamp: number;
   status: 'pending' | 'complete' | 'failed';
