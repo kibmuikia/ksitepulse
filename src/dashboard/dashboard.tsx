@@ -19,6 +19,11 @@ interface CTab {
   favIconUrl?: string;
 }
 
+type DrawerState =
+  | { kind: 'request'; data: RequestRecord }
+  | { kind: 'console'; data: ConsoleEntry; startTime: number }
+  | null;
+
 // ── Method badge styles ────────────────────────────────────────────
 
 const METHOD_STYLES: Record<string, { bg: string; color: string }> = {
@@ -29,6 +34,16 @@ const METHOD_STYLES: Record<string, { bg: string; color: string }> = {
   DELETE: { bg: 'rgba(255,77,79,0.15)', color: 'var(--health-error)' },
 };
 const DEFAULT_METHOD_STYLE = { bg: 'rgba(74,74,98,0.2)', color: 'var(--text-muted)' };
+
+// ── Console level badge styles ─────────────────────────────────────
+
+const LEVEL_STYLES: Record<string, { bg: string; color: string }> = {
+  error: { bg: 'rgba(255,77,79,0.15)', color: 'var(--console-error, var(--health-error))' },
+  warn: { bg: 'rgba(245,166,35,0.15)', color: 'var(--console-warn, var(--health-warning))' },
+  info: { bg: 'rgba(96,165,250,0.15)', color: 'var(--console-info, #60a5fa)' },
+  log: { bg: 'rgba(74,74,98,0.2)', color: 'var(--console-log, var(--text-secondary))' },
+};
+const DEFAULT_LEVEL_STYLE = { bg: 'rgba(74,74,98,0.2)', color: 'var(--text-muted)' };
 
 // ── HTTP status display ────────────────────────────────────────────
 
@@ -76,6 +91,10 @@ function methodStyle(method?: string) {
   return METHOD_STYLES[(method ?? '').toUpperCase()] ?? DEFAULT_METHOD_STYLE;
 }
 
+function levelStyle(level: string) {
+  return LEVEL_STYLES[level.toLowerCase()] ?? DEFAULT_LEVEL_STYLE;
+}
+
 function reqDotColor(r: RequestRecord): string {
   if (r.status === 'failed') return 'var(--health-error)';
   if (!r.statusCode) return 'var(--text-muted)';
@@ -103,6 +122,8 @@ function Dashboard() {
   const [loading, setLoading] = useState(false);
   const [theme, setTheme] = useState<Theme>('auto');
   const [switchOpen, setSwitchOpen] = useState(false);
+  const [titleHover, setTitleHover] = useState(false);
+  const [drawer, setDrawer] = useState<DrawerState>(null);
   const switchRef = useRef<HTMLDivElement>(null);
 
   const selectedTab = tabs.find((t) => t.id === selectedId) ?? null;
@@ -173,12 +194,9 @@ function Dashboard() {
     });
 
     function handleDocClick(e: MouseEvent) {
-      if (switchRef.current && !switchRef.current.contains(e.target as Node)) {
-        setSwitchOpen(false);
-      }
+      if (switchRef.current && !switchRef.current.contains(e.target as Node)) setSwitchOpen(false);
     }
     document.addEventListener('mousedown', handleDocClick);
-
     return () => {
       port.disconnect();
       document.removeEventListener('mousedown', handleDocClick);
@@ -212,7 +230,6 @@ function Dashboard() {
           flexShrink: 0,
         }}
       >
-        {/* Logo */}
         <span
           style={{
             fontWeight: 700,
@@ -224,7 +241,7 @@ function Dashboard() {
           ksite<span style={{ color: 'var(--health-good)' }}>pulse</span>
         </span>
 
-        {/* Current site identity pill */}
+        {/* Site identity pill with hover tooltip */}
         {selectedTab ? (
           <div
             style={{
@@ -237,7 +254,11 @@ function Dashboard() {
               background: 'var(--bg-surface)',
               border: '1px solid var(--border-subtle)',
               borderRadius: 'var(--radius-md)',
+              position: 'relative',
+              cursor: 'default',
             }}
+            onMouseEnter={() => setTitleHover(true)}
+            onMouseLeave={() => setTitleHover(false)}
           >
             {selectedTab.favIconUrl && (
               <img
@@ -271,6 +292,80 @@ function Dashboard() {
                 </span>
               </>
             )}
+
+            {/* Tooltip */}
+            {titleHover && (
+              <div
+                style={{
+                  position: 'absolute',
+                  top: 'calc(100% + 8px)',
+                  left: 0,
+                  minWidth: 300,
+                  maxWidth: 500,
+                  background: 'var(--bg-elevated)',
+                  border: '1px solid var(--border-default)',
+                  borderRadius: 'var(--radius-md)',
+                  boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
+                  padding: 'var(--space-3)',
+                  zIndex: 200,
+                  pointerEvents: 'none',
+                }}
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 'var(--space-2)',
+                    marginBottom: 'var(--space-2)',
+                  }}
+                >
+                  {selectedTab.favIconUrl && (
+                    <img
+                      src={selectedTab.favIconUrl}
+                      alt=""
+                      width={16}
+                      height={16}
+                      style={{ borderRadius: 3, flexShrink: 0 }}
+                    />
+                  )}
+                  <span
+                    style={{
+                      fontWeight: 700,
+                      fontSize: 'var(--text-sm)',
+                      color: 'var(--text-primary)',
+                    }}
+                  >
+                    {hostname(selectedTab.url)}
+                  </span>
+                </div>
+                {selectedTab.title && (
+                  <div
+                    style={{
+                      fontSize: 'var(--text-sm)',
+                      color: 'var(--text-secondary)',
+                      marginBottom: 'var(--space-2)',
+                      lineHeight: 1.5,
+                      wordBreak: 'break-word',
+                    }}
+                  >
+                    {selectedTab.title}
+                  </div>
+                )}
+                <div
+                  style={{
+                    fontSize: 'var(--text-xs)',
+                    color: 'var(--text-muted)',
+                    fontFamily: 'var(--font-mono)',
+                    wordBreak: 'break-all',
+                    lineHeight: 1.5,
+                    paddingTop: 'var(--space-1)',
+                    borderTop: '1px solid var(--border-subtle)',
+                  }}
+                >
+                  {selectedTab.url}
+                </div>
+              </div>
+            )}
           </div>
         ) : (
           <div style={{ flex: 1 }} />
@@ -280,7 +375,6 @@ function Dashboard() {
         <div
           style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexShrink: 0 }}
         >
-          {/* Switch tab dropdown */}
           {otherTabs.length > 0 && (
             <div ref={switchRef} style={{ position: 'relative' }}>
               <button
@@ -399,7 +493,6 @@ function Dashboard() {
               )}
             </div>
           )}
-
           <ThemeCycle
             current={theme}
             onChange={(t) => {
@@ -419,9 +512,18 @@ function Dashboard() {
         ) : !summary ? (
           <Placeholder text="No data yet — navigate to a page in this tab." />
         ) : (
-          <Content summary={summary} health={health} score={score} />
+          <Content
+            summary={summary}
+            health={health}
+            score={score}
+            onRequestClick={(r) => setDrawer({ kind: 'request', data: r })}
+            onConsoleClick={(e, t) => setDrawer({ kind: 'console', data: e, startTime: t })}
+          />
         )}
       </main>
+
+      {/* ── Side Drawer ────────────────────────────────────────────── */}
+      {drawer && <Drawer state={drawer} onClose={() => setDrawer(null)} />}
     </div>
   );
 }
@@ -432,7 +534,15 @@ function Content({
   summary,
   health,
   score,
-}: { summary: TabSummary; health: Health; score: number }) {
+  onRequestClick,
+  onConsoleClick,
+}: {
+  summary: TabSummary;
+  health: Health;
+  score: number;
+  onRequestClick: (r: RequestRecord) => void;
+  onConsoleClick: (e: ConsoleEntry, startTime: number) => void;
+}) {
   const issues = summary.issues ?? [];
   const vitals = Object.entries(summary.vitals);
   const failedReqs = summary.requests.filter((r) => r.status === 'failed');
@@ -440,7 +550,13 @@ function Content({
   return (
     <div
       class="fade-in"
-      style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-6)', maxWidth: 960 }}
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 'var(--space-6)',
+        maxWidth: 960,
+        margin: '0 auto',
+      }}
     >
       {/* Health + summary stats */}
       <div style={{ display: 'flex', gap: 'var(--space-6)', alignItems: 'flex-start' }}>
@@ -564,10 +680,14 @@ function Content({
         </Section>
       )}
 
-      <RequestsTable requests={summary.requests} />
+      <RequestsTable requests={summary.requests} onRowClick={onRequestClick} />
 
       {summary.console.length > 0 && (
-        <ConsoleLog entries={summary.console} startTime={summary.startTime} />
+        <ConsoleLog
+          entries={summary.console}
+          startTime={summary.startTime}
+          onRowClick={(e) => onConsoleClick(e, summary.startTime)}
+        />
       )}
     </div>
   );
@@ -580,12 +700,7 @@ function FilterChip({
   active,
   onClick,
   color,
-}: {
-  label: string;
-  active: boolean;
-  onClick: () => void;
-  color?: string;
-}) {
+}: { label: string; active: boolean; onClick: () => void; color?: string }) {
   return (
     <button
       type="button"
@@ -619,11 +734,15 @@ type StatusFilter = 'ALL' | '2xx' | '3xx' | '4xx' | '5xx' | 'failed';
 
 const KNOWN_METHODS: MethodFilter[] = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
 
-function RequestsTable({ requests }: { requests: RequestRecord[] }) {
+function RequestsTable({
+  requests,
+  onRowClick,
+}: { requests: RequestRecord[]; onRowClick: (r: RequestRecord) => void }) {
   const [search, setSearch] = useState('');
   const [methodFilter, setMethodFilter] = useState<MethodFilter>('ALL');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL');
   const [page, setPage] = useState(1);
+  const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
 
   function applyFilter<T>(setter: (v: T) => void, v: T) {
     setter(v);
@@ -634,9 +753,7 @@ function RequestsTable({ requests }: { requests: RequestRecord[] }) {
     .slice()
     .reverse()
     .filter((r) => {
-      if (search) {
-        if (!r.url.toLowerCase().includes(search.toLowerCase())) return false;
-      }
+      if (search && !r.url.toLowerCase().includes(search.toLowerCase())) return false;
       if (methodFilter !== 'ALL') {
         const m = (r.method ?? '').toUpperCase();
         if (methodFilter === 'OTHER') {
@@ -663,7 +780,6 @@ function RequestsTable({ requests }: { requests: RequestRecord[] }) {
 
   return (
     <Section title={`Requests (${requests.length})`}>
-      {/* Filter controls */}
       <div
         style={{
           display: 'flex',
@@ -752,7 +868,6 @@ function RequestsTable({ requests }: { requests: RequestRecord[] }) {
             overflow: 'hidden',
           }}
         >
-          {/* Table header */}
           <div
             style={{
               display: 'grid',
@@ -772,24 +887,36 @@ function RequestsTable({ requests }: { requests: RequestRecord[] }) {
             <span style={{ textAlign: 'right' }}>Duration</span>
             <span style={{ textAlign: 'right' }}>Size</span>
           </div>
-
-          {/* Table rows */}
           {shown.map((r, i) => {
             const ms = methodStyle(r.method);
             const methodLabel = (r.method ?? r.type).toUpperCase().slice(0, 7);
+            const isHovered = hoveredIdx === i;
             return (
-              <div
+              <button
                 key={r.requestId}
+                type="button"
+                onClick={() => onRowClick(r)}
+                onMouseEnter={() => setHoveredIdx(i)}
+                onMouseLeave={() => setHoveredIdx(null)}
                 style={{
                   display: 'grid',
                   gridTemplateColumns: '90px 1fr 150px 88px 72px',
                   padding: 'var(--space-2) var(--space-4)',
                   borderBottom: i < shown.length - 1 ? '1px solid var(--border-subtle)' : 'none',
                   alignItems: 'center',
-                  background: r.status === 'failed' ? 'rgba(255,77,79,0.035)' : 'transparent',
+                  cursor: 'pointer',
+                  width: '100%',
+                  textAlign: 'left',
+                  border: 'none',
+                  background: isHovered
+                    ? 'var(--bg-elevated)'
+                    : r.status === 'failed'
+                      ? 'rgba(255,77,79,0.035)'
+                      : 'transparent',
+                  transition: 'background 80ms',
+                  fontFamily: 'inherit',
                 }}
               >
-                {/* Method badge */}
                 <span>
                   <span
                     style={{
@@ -807,8 +934,6 @@ function RequestsTable({ requests }: { requests: RequestRecord[] }) {
                     {methodLabel}
                   </span>
                 </span>
-
-                {/* Endpoint path */}
                 <span
                   style={{
                     fontSize: 'var(--text-xs)',
@@ -823,8 +948,6 @@ function RequestsTable({ requests }: { requests: RequestRecord[] }) {
                 >
                   {endpointPath(r.url)}
                 </span>
-
-                {/* Status dot + label */}
                 <span
                   style={{
                     display: 'flex',
@@ -850,8 +973,6 @@ function RequestsTable({ requests }: { requests: RequestRecord[] }) {
                     {reqStatusLabel(r)}
                   </span>
                 </span>
-
-                {/* Duration */}
                 <span
                   style={{
                     fontSize: 'var(--text-xs)',
@@ -862,8 +983,6 @@ function RequestsTable({ requests }: { requests: RequestRecord[] }) {
                 >
                   {r.duration != null ? fmtMs(r.duration) : '—'}
                 </span>
-
-                {/* Size */}
                 <span
                   style={{
                     fontSize: 'var(--text-xs)',
@@ -874,13 +993,12 @@ function RequestsTable({ requests }: { requests: RequestRecord[] }) {
                 >
                   {r.transferSize ? fmtBytes(r.transferSize) : r.fromCache ? 'cache' : '—'}
                 </span>
-              </div>
+              </button>
             );
           })}
         </div>
       )}
 
-      {/* Pagination */}
       {filtered.length > REQ_PAGE_SIZE && (
         <div
           style={{
@@ -924,9 +1042,14 @@ function RequestsTable({ requests }: { requests: RequestRecord[] }) {
 
 // ── Console log ────────────────────────────────────────────────────
 
-function ConsoleLog({ entries, startTime }: { entries: ConsoleEntry[]; startTime: number }) {
+function ConsoleLog({
+  entries,
+  startTime,
+  onRowClick,
+}: { entries: ConsoleEntry[]; startTime: number; onRowClick: (e: ConsoleEntry) => void }) {
   const [filter, setFilter] = useState<'all' | 'error' | 'warn'>('all');
   const [page, setPage] = useState(1);
+  const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
 
   const filtered = filter === 'all' ? entries : entries.filter((e) => e.level === filter);
   const totalPages = Math.max(1, Math.ceil(filtered.length / CON_PAGE_SIZE));
@@ -937,60 +1060,43 @@ function ConsoleLog({ entries, startTime }: { entries: ConsoleEntry[]; startTime
     .reverse()
     .slice(start, start + CON_PAGE_SIZE);
 
-  const levelColor: Record<string, string> = {
-    error: 'var(--console-error)',
-    warn: 'var(--console-warn)',
-    info: 'var(--console-info)',
-    log: 'var(--console-log)',
-  };
-  const levelIcon: Record<string, string> = { error: '✗', warn: '!', info: 'i', log: '›' };
   const errorCount = entries.filter((e) => e.level === 'error').length;
   const warnCount = entries.filter((e) => e.level === 'warn').length;
 
   return (
     <Section title={`Console (${entries.length})`}>
-      {/* Filter chips */}
       <div
         style={{
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
-          marginBottom: 'var(--space-2)',
+          marginBottom: 'var(--space-3)',
         }}
       >
         <div style={{ display: 'flex', gap: 'var(--space-1)' }}>
           {(['all', 'error', 'warn'] as const).map((f) => (
-            <button
-              type="button"
+            <FilterChip
               key={f}
+              label={
+                f === 'all'
+                  ? `All (${entries.length})`
+                  : f === 'error'
+                    ? `Errors (${errorCount})`
+                    : `Warns (${warnCount})`
+              }
+              active={filter === f}
               onClick={() => {
                 setFilter(f);
                 setPage(1);
               }}
-              style={{
-                padding: '3px 9px',
-                borderRadius: 'var(--radius-sm)',
-                border: `1px solid ${filter === f ? 'var(--border-default)' : 'var(--border-subtle)'}`,
-                background: filter === f ? 'var(--bg-elevated)' : 'transparent',
-                fontSize: 'var(--text-xs)',
-                cursor: 'pointer',
-                color:
-                  f === 'error'
-                    ? 'var(--console-error)'
-                    : f === 'warn'
-                      ? 'var(--console-warn)'
-                      : filter === f
-                        ? 'var(--text-primary)'
-                        : 'var(--text-muted)',
-                fontWeight: filter === f ? 600 : 400,
-              }}
-            >
-              {f === 'all'
-                ? `All (${entries.length})`
-                : f === 'error'
-                  ? `Errors (${errorCount})`
-                  : `Warns (${warnCount})`}
-            </button>
+              color={
+                f === 'error'
+                  ? 'var(--health-error)'
+                  : f === 'warn'
+                    ? 'var(--health-warning)'
+                    : undefined
+              }
+            />
           ))}
         </div>
         {filtered.length > CON_PAGE_SIZE && (
@@ -1000,98 +1106,537 @@ function ConsoleLog({ entries, startTime }: { entries: ConsoleEntry[]; startTime
         )}
       </div>
 
-      <div
-        style={{
-          background: 'var(--bg-surface)',
-          border: '1px solid var(--border-subtle)',
-          borderRadius: 'var(--radius-md)',
-          overflow: 'hidden',
-        }}
-      >
-        {shown.map((entry, i) => {
-          const relMs = entry.timestamp - startTime;
-          const relSec = relMs > 0 ? `+${(relMs / 1000).toFixed(2)}s` : '';
-          return (
-            <div
-              key={i}
-              style={{
-                display: 'grid',
-                gridTemplateColumns: '16px 52px 1fr',
-                gap: 'var(--space-2)',
-                padding: '3px var(--space-3)',
-                borderBottom: i < shown.length - 1 ? '1px solid var(--border-subtle)' : 'none',
-                alignItems: 'baseline',
-              }}
-            >
-              <span
+      {shown.length === 0 ? (
+        <div
+          style={{
+            fontSize: 'var(--text-sm)',
+            color: 'var(--text-muted)',
+            padding: 'var(--space-5) 0',
+            textAlign: 'center',
+          }}
+        >
+          No matching entries.
+        </div>
+      ) : (
+        <div
+          style={{
+            background: 'var(--bg-surface)',
+            border: '1px solid var(--border-subtle)',
+            borderRadius: 'var(--radius-md)',
+            overflow: 'hidden',
+          }}
+        >
+          {/* Table header */}
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '68px 68px 100px 1fr',
+              padding: 'var(--space-2) var(--space-4)',
+              borderBottom: '1px solid var(--border-subtle)',
+              fontSize: 'var(--text-xs)',
+              color: 'var(--text-muted)',
+              fontWeight: 600,
+              letterSpacing: '0.07em',
+              textTransform: 'uppercase',
+            }}
+          >
+            <span>Level</span>
+            <span>Time</span>
+            <span>Category</span>
+            <span>Message</span>
+          </div>
+          {/* Table rows */}
+          {shown.map((entry, i) => {
+            const ls = levelStyle(entry.level);
+            const relMs = entry.timestamp - startTime;
+            const relStr = relMs > 0 ? `+${(relMs / 1000).toFixed(2)}s` : '';
+            const isHovered = hoveredIdx === i;
+            return (
+              <button
+                key={i}
+                type="button"
+                onClick={() => onRowClick(entry)}
+                onMouseEnter={() => setHoveredIdx(i)}
+                onMouseLeave={() => setHoveredIdx(null)}
                 style={{
-                  fontSize: 'var(--text-xs)',
-                  color: levelColor[entry.level] ?? 'var(--text-muted)',
-                  fontWeight: 600,
+                  display: 'grid',
+                  gridTemplateColumns: '68px 68px 100px 1fr',
+                  padding: 'var(--space-2) var(--space-4)',
+                  borderBottom: i < shown.length - 1 ? '1px solid var(--border-subtle)' : 'none',
+                  alignItems: 'center',
+                  cursor: 'pointer',
+                  width: '100%',
+                  textAlign: 'left',
+                  border: 'none',
+                  background: isHovered
+                    ? 'var(--bg-elevated)'
+                    : entry.level === 'error'
+                      ? 'rgba(255,77,79,0.035)'
+                      : entry.level === 'warn'
+                        ? 'rgba(245,166,35,0.03)'
+                        : 'transparent',
+                  transition: 'background 80ms',
+                  fontFamily: 'inherit',
                 }}
               >
-                {levelIcon[entry.level] ?? '·'}
-              </span>
-              <span
-                style={{
-                  fontSize: 'var(--text-xs)',
-                  color: 'var(--text-muted)',
-                  fontFamily: 'var(--font-mono)',
-                }}
-              >
-                {relSec}
-              </span>
-              <span
-                style={{
-                  fontSize: 'var(--text-xs)',
-                  fontFamily: 'var(--font-mono)',
-                  color: levelColor[entry.level] ?? 'var(--text-primary)',
-                  whiteSpace: 'pre-wrap',
-                  wordBreak: 'break-all',
-                  lineHeight: 1.5,
-                }}
-              >
-                {entry.message}
-              </span>
-            </div>
-          );
-        })}
-      </div>
+                <span>
+                  <span
+                    style={{
+                      display: 'inline-block',
+                      padding: '2px 6px',
+                      borderRadius: 'var(--radius-sm)',
+                      fontSize: 'var(--text-xs)',
+                      fontWeight: 700,
+                      fontFamily: 'var(--font-mono)',
+                      letterSpacing: '0.02em',
+                      textTransform: 'uppercase',
+                      background: ls.bg,
+                      color: ls.color,
+                    }}
+                  >
+                    {entry.level.slice(0, 4)}
+                  </span>
+                </span>
+                <span
+                  style={{
+                    fontSize: 'var(--text-xs)',
+                    fontFamily: 'var(--font-mono)',
+                    color: 'var(--text-muted)',
+                  }}
+                >
+                  {relStr}
+                </span>
+                <span
+                  style={{
+                    fontSize: 'var(--text-xs)',
+                    fontFamily: 'var(--font-mono)',
+                    color: 'var(--text-muted)',
+                    overflow: 'hidden',
+                    whiteSpace: 'nowrap',
+                    textOverflow: 'ellipsis',
+                    paddingRight: 'var(--space-2)',
+                  }}
+                >
+                  {entry.category || '—'}
+                </span>
+                <span
+                  style={{
+                    fontSize: 'var(--text-xs)',
+                    fontFamily: 'var(--font-mono)',
+                    color: ls.color,
+                    overflow: 'hidden',
+                    whiteSpace: 'nowrap',
+                    textOverflow: 'ellipsis',
+                  }}
+                >
+                  {entry.message}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
 
-      {/* Console pagination */}
       {filtered.length > CON_PAGE_SIZE && (
         <div
           style={{
             display: 'flex',
-            justifyContent: 'flex-end',
-            gap: 'var(--space-1)',
+            alignItems: 'center',
+            justifyContent: 'space-between',
             marginTop: 'var(--space-2)',
           }}
         >
-          <PaginationBtn
-            label="← Prev"
-            disabled={safePage <= 1}
-            onClick={() => setPage(safePage - 1)}
-          />
-          <span
-            style={{
-              padding: '3px var(--space-2)',
-              fontSize: 'var(--text-xs)',
-              color: 'var(--text-muted)',
-              display: 'flex',
-              alignItems: 'center',
-            }}
-          >
-            {safePage} / {totalPages}
+          <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
+            {start + 1}–{Math.min(start + CON_PAGE_SIZE, filtered.length)} of {filtered.length}
           </span>
-          <PaginationBtn
-            label="Next →"
-            disabled={safePage >= totalPages}
-            onClick={() => setPage(safePage + 1)}
-          />
+          <div style={{ display: 'flex', gap: 'var(--space-1)' }}>
+            <PaginationBtn
+              label="← Prev"
+              disabled={safePage <= 1}
+              onClick={() => setPage(safePage - 1)}
+            />
+            <span
+              style={{
+                padding: '3px var(--space-2)',
+                fontSize: 'var(--text-xs)',
+                color: 'var(--text-muted)',
+                display: 'flex',
+                alignItems: 'center',
+              }}
+            >
+              {safePage} / {totalPages}
+            </span>
+            <PaginationBtn
+              label="Next →"
+              disabled={safePage >= totalPages}
+              onClick={() => setPage(safePage + 1)}
+            />
+          </div>
         </div>
       )}
     </Section>
+  );
+}
+
+// ── Side Drawer ────────────────────────────────────────────────────
+
+function Drawer({ state, onClose }: { state: NonNullable<DrawerState>; onClose: () => void }) {
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => setVisible(true));
+    return () => cancelAnimationFrame(frame);
+  }, []);
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') onClose();
+    }
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  const title = state.kind === 'request' ? 'Request Details' : 'Console Entry';
+
+  return (
+    <>
+      {/* Backdrop */}
+      <div
+        role="button"
+        tabIndex={-1}
+        aria-label="Close panel"
+        onClick={onClose}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') onClose();
+        }}
+        style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(0,0,0,0.45)',
+          zIndex: 300,
+          opacity: visible ? 1 : 0,
+          transition: 'opacity 200ms ease',
+        }}
+      />
+      {/* Panel */}
+      <div
+        style={{
+          position: 'fixed',
+          top: 0,
+          right: 0,
+          height: '100vh',
+          width: 440,
+          background: 'var(--bg-elevated)',
+          borderLeft: '1px solid var(--border-default)',
+          boxShadow: '-8px 0 32px rgba(0,0,0,0.35)',
+          zIndex: 301,
+          display: 'flex',
+          flexDirection: 'column',
+          transform: visible ? 'translateX(0)' : 'translateX(100%)',
+          transition: 'transform 220ms cubic-bezier(0.16, 1, 0.3, 1)',
+        }}
+      >
+        {/* Drawer header */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '0 var(--space-4)',
+            height: 52,
+            borderBottom: '1px solid var(--border-subtle)',
+            flexShrink: 0,
+          }}
+        >
+          <span
+            style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--text-primary)' }}
+          >
+            {title}
+          </span>
+          <button
+            type="button"
+            onClick={onClose}
+            style={{
+              background: 'none',
+              border: '1px solid transparent',
+              borderRadius: 'var(--radius-sm)',
+              cursor: 'pointer',
+              color: 'var(--text-muted)',
+              fontSize: 20,
+              width: 28,
+              height: 28,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              lineHeight: 1,
+            }}
+          >
+            ×
+          </button>
+        </div>
+        {/* Drawer body */}
+        <div style={{ flex: 1, overflow: 'hidden auto', padding: 'var(--space-4)' }}>
+          {state.kind === 'request' ? (
+            <RequestDrawerContent data={state.data} />
+          ) : (
+            <ConsoleDrawerContent data={state.data} startTime={state.startTime} />
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
+function DrawerField({ label, children }: { label: string; children: ComponentChildren }) {
+  return (
+    <div style={{ marginBottom: 'var(--space-4)' }}>
+      <div
+        style={{
+          fontSize: 'var(--text-xs)',
+          color: 'var(--text-muted)',
+          fontWeight: 600,
+          textTransform: 'uppercase',
+          letterSpacing: '0.06em',
+          marginBottom: 6,
+        }}
+      >
+        {label}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function RequestDrawerContent({ data: r }: { data: RequestRecord }) {
+  const ms = methodStyle(r.method);
+  return (
+    <div>
+      {/* Full URL block */}
+      <div
+        style={{
+          padding: 'var(--space-3)',
+          background: 'var(--bg-surface)',
+          border: '1px solid var(--border-subtle)',
+          borderRadius: 'var(--radius-md)',
+          fontFamily: 'var(--font-mono)',
+          fontSize: 'var(--text-xs)',
+          color: 'var(--text-secondary)',
+          wordBreak: 'break-all',
+          lineHeight: 1.6,
+          marginBottom: 'var(--space-4)',
+        }}
+      >
+        {r.url}
+      </div>
+
+      <DrawerField label="Method">
+        <span
+          style={{
+            display: 'inline-block',
+            padding: '2px 8px',
+            borderRadius: 'var(--radius-sm)',
+            fontSize: 'var(--text-xs)',
+            fontWeight: 700,
+            fontFamily: 'var(--font-mono)',
+            background: ms.bg,
+            color: ms.color,
+          }}
+        >
+          {(r.method ?? r.type).toUpperCase()}
+        </span>
+      </DrawerField>
+
+      <DrawerField label="Status">
+        <span
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 6,
+            fontFamily: 'var(--font-mono)',
+            fontSize: 'var(--text-sm)',
+          }}
+        >
+          <span
+            style={{
+              width: 8,
+              height: 8,
+              borderRadius: '50%',
+              background: reqDotColor(r),
+              flexShrink: 0,
+              display: 'inline-block',
+            }}
+          />
+          {reqStatusLabel(r)}
+        </span>
+      </DrawerField>
+
+      <DrawerField label="Duration">
+        <span
+          style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: 'var(--text-sm)',
+            color: 'var(--text-primary)',
+          }}
+        >
+          {r.duration != null ? fmtMs(r.duration) : '—'}
+        </span>
+      </DrawerField>
+
+      <DrawerField label="Transfer Size">
+        <span
+          style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: 'var(--text-sm)',
+            color: 'var(--text-primary)',
+          }}
+        >
+          {r.transferSize ? fmtBytes(r.transferSize) : '—'}
+        </span>
+      </DrawerField>
+
+      <DrawerField label="Source">
+        <span
+          style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: 'var(--text-sm)',
+            color: 'var(--text-secondary)',
+          }}
+        >
+          {r.fromCache ? 'Cache' : 'Network'}
+        </span>
+      </DrawerField>
+
+      <DrawerField label="Resource Type">
+        <span
+          style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: 'var(--text-sm)',
+            color: 'var(--text-secondary)',
+            textTransform: 'capitalize',
+          }}
+        >
+          {r.type || '—'}
+        </span>
+      </DrawerField>
+
+      {r.error && (
+        <DrawerField label="Error">
+          <span
+            style={{
+              fontFamily: 'var(--font-mono)',
+              fontSize: 'var(--text-xs)',
+              color: 'var(--health-error)',
+              wordBreak: 'break-word',
+            }}
+          >
+            {r.error}
+          </span>
+        </DrawerField>
+      )}
+
+      <DrawerField label="Request ID">
+        <span
+          style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: 'var(--text-xs)',
+            color: 'var(--text-muted)',
+          }}
+        >
+          {r.requestId}
+        </span>
+      </DrawerField>
+    </div>
+  );
+}
+
+function ConsoleDrawerContent({
+  data: entry,
+  startTime,
+}: { data: ConsoleEntry; startTime: number }) {
+  const ls = levelStyle(entry.level);
+  const relMs = entry.timestamp - startTime;
+  const relStr = relMs > 0 ? `+${(relMs / 1000).toFixed(3)}s` : 'before load';
+
+  return (
+    <div>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 'var(--space-2)',
+          marginBottom: 'var(--space-4)',
+        }}
+      >
+        <span
+          style={{
+            display: 'inline-block',
+            padding: '2px 8px',
+            borderRadius: 'var(--radius-sm)',
+            fontSize: 'var(--text-xs)',
+            fontWeight: 700,
+            fontFamily: 'var(--font-mono)',
+            textTransform: 'uppercase',
+            background: ls.bg,
+            color: ls.color,
+          }}
+        >
+          {entry.level}
+        </span>
+        <span
+          style={{
+            fontSize: 'var(--text-xs)',
+            color: 'var(--text-muted)',
+            fontFamily: 'var(--font-mono)',
+          }}
+        >
+          {relStr} after page load
+        </span>
+      </div>
+
+      <DrawerField label="Category">
+        <span
+          style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: 'var(--text-xs)',
+            color: 'var(--text-secondary)',
+          }}
+        >
+          {entry.category || '—'}
+        </span>
+      </DrawerField>
+
+      <DrawerField label="Message">
+        <pre
+          style={{
+            margin: 0,
+            padding: 'var(--space-3)',
+            background: 'var(--bg-surface)',
+            border: '1px solid var(--border-subtle)',
+            borderRadius: 'var(--radius-md)',
+            fontFamily: 'var(--font-mono)',
+            fontSize: 'var(--text-xs)',
+            color: ls.color,
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-all',
+            lineHeight: 1.6,
+          }}
+        >
+          {entry.message}
+        </pre>
+      </DrawerField>
+
+      <DrawerField label="Timestamp">
+        <span
+          style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: 'var(--text-xs)',
+            color: 'var(--text-muted)',
+          }}
+        >
+          {new Date(entry.timestamp).toLocaleTimeString()}
+        </span>
+      </DrawerField>
+    </div>
   );
 }
 
