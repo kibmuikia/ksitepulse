@@ -10,6 +10,8 @@ import { ModeToggle } from './components/ModeToggle';
 import '../styles/tokens.css';
 import '../styles/base.css';
 
+const LOG = (...args: unknown[]) => console.log('[ksp:popup]', ...args);
+
 function Popup() {
   const [summary, setSummary] = useState<TabSummary | null>(null);
   const [mode, setMode] = useState<Mode>('everyday');
@@ -24,10 +26,22 @@ function Popup() {
       setMode(config.mode);
 
       chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
-        if (!tab?.id) { setLoading(false); return; }
+        LOG('active tab:', tab?.id, tab?.url);
+        if (!tab?.id) {
+          LOG('no active tab id, aborting');
+          setLoading(false);
+          return;
+        }
+        LOG('sending KSPULSE_GET_STATE for tab', tab.id);
         chrome.runtime.sendMessage(
           { type: 'KSPULSE_GET_STATE', tabId: tab.id },
           (res: TabSummary | null) => {
+            if (chrome.runtime.lastError) {
+              LOG('sendMessage error:', chrome.runtime.lastError.message);
+              setLoading(false);
+              return;
+            }
+            LOG('got response:', res ? `health=${res.health} score=${res.score} requests=${res.requests?.length}` : 'null');
             setSummary(res);
             setLoading(false);
           },

@@ -13,8 +13,12 @@ import type {
   KspMessage,
 } from "@shared/types";
 
+const LOG = (...args: unknown[]) => console.log('[ksp:bg]', ...args);
+
 const tabStateManager = new TabStateManager();
 const classifier = new IssueClassifier();
+
+LOG('service worker started');
 
 // Ports for live-push to open dashboard pages
 const dashboardPorts = new Set<chrome.runtime.Port>();
@@ -24,6 +28,7 @@ const dashboardPorts = new Set<chrome.runtime.Port>();
 chrome.webNavigation.onBeforeNavigate.addListener(
   async ({ tabId, frameId, url }) => {
     if (frameId !== 0) return;
+    LOG('nav:before', tabId, url);
     await tabStateManager.init(tabId, url);
     updateBadge(tabId, "loading");
   },
@@ -31,10 +36,12 @@ chrome.webNavigation.onBeforeNavigate.addListener(
 
 chrome.webNavigation.onCompleted.addListener(async ({ tabId, frameId }) => {
   if (frameId !== 0) return;
+  LOG('nav:complete', tabId);
   await refreshBadge(tabId);
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
+  LOG('tab:removed', tabId);
   tabStateManager.remove(tabId);
 });
 
@@ -80,35 +87,73 @@ chrome.webRequest.onErrorOccurred.addListener(
 
 chrome.runtime.onMessage.addListener(
   (msg: KspMessage, sender, sendResponse) => {
-    const tabId = sender.tab?.id;
-    if (!tabId) return;
+    // Content scripts have sender.tab; popup/dashboard carry tabId in the message payload.
+    const senderTabId = sender.tab?.id;
+    const payloadTabId = (msg as Record<string, unknown>).tabId as number | undefined;
+
+    LOG('msg:recv', msg.type, 'senderTab:', senderTabId, 'payloadTab:', payloadTabId);
 
     (async () => {
       if (msg.type === "KSPULSE_BATCH") {
-        const { items } = msg as unknown as BatchMessage;
-        for (const item of items) {
-          await handleContentMessage(tabId, item);
+        if (!senderTabId) {
+          LOG('msg:batch — missing senderTabId, dropping');
+          return;
         }
-        await refreshBadge(tabId);
-        notifyDashboards(tabId);
+        const { items } = msg as unknown as BatchMessage;
+        LOG('msg:batch', senderTabId, items.length, 'items');
+        for (const item of items) {
+          await handleContentMessage(senderTabId, item);
+        }
+        await refreshBadge(senderTabId);
+        notifyDashboards(senderTabId);
         return;
       }
 
       if (msg.type === "KSPULSE_GET_STATE") {
-        const state = await tabStateManager.get(tabId);
-        if (!state) {
+        const tabId = payloadTabId ?? senderTabId;
+        if (!tabId) {
+          LOG('msg:get_state — no tabId resolved, sending null');
           sendResponse(null);
           return;
         }
-        sendResponse({
+
+        let state = await tabStateManager.get(tabId);
+        LOG('msg:get_state', tabId, state ? 'found in storage' : 'not in storage');
+
+        // Auto-init tabs that were open before the extension was installed/reloaded
+        if (!state) {
+          try {
+            const tab = await chrome.tabs.get(tabId);
+            if (tab.url && !tab.url.startsWith('chrome://')) {
+              LOG('msg:get_state — auto-init existing tab', tabId, tab.url);
+              await tabStateManager.init(tabId, tab.url);
+              state = await tabStateManager.get(tabId);
+            }
+          } catch (e) {
+            LOG('msg:get_state — chrome.tabs.get failed', e);
+          }
+        }
+
+        if (!state) {
+          LOG('msg:get_state — state still null after auto-init attempt, sending null');
+          sendResponse(null);
+          return;
+        }
+
+        const summary = {
           ...state,
           issues: classifier.classify(state),
           score: classifier.healthScore(state),
-        });
+          health: classifier.overallHealth(state),
+        };
+        LOG('msg:get_state — responding', tabId, 'health:', summary.health, 'score:', summary.score, 'requests:', state.requests.length, 'vitals:', Object.keys(state.vitals));
+        sendResponse(summary);
         return;
       }
 
       if (msg.type === "KSPULSE_EXPORT") {
+        const tabId = payloadTabId ?? senderTabId;
+        if (!tabId) return;
         const state = await tabStateManager.get(tabId);
         if (!state) return;
         const har = buildHar(state);
@@ -131,8 +176,12 @@ chrome.runtime.onMessage.addListener(
 
 chrome.runtime.onConnect.addListener((port) => {
   if (port.name !== "ksp-dashboard") return;
+  LOG('dashboard:connected');
   dashboardPorts.add(port);
-  port.onDisconnect.addListener(() => dashboardPorts.delete(port));
+  port.onDisconnect.addListener(() => {
+    LOG('dashboard:disconnected');
+    dashboardPorts.delete(port);
+  });
 });
 
 // ── Helpers ───────────────────────────────────────────────────────
@@ -154,11 +203,13 @@ async function handleContentMessage(
     }
     case "KSPULSE_VITAL": {
       const m = msg as VitalMessage;
+      LOG('vital', tabId, m.name, m.value, m.rating);
       await tabStateManager.updateVital(tabId, m.name, m.value, m.rating);
       break;
     }
     case "KSPULSE_NAV": {
       const m = msg as NavMessage;
+      LOG('nav timing', tabId, 'ttfb:', m.ttfb);
       await tabStateManager.updateNav(tabId, {
         ttfb: m.ttfb,
         domContentLoaded: m.domContentLoaded,
@@ -174,6 +225,7 @@ async function handleContentMessage(
     }
     case "KSPULSE_LONG_TASK": {
       const m = msg as LongTaskMessage;
+      LOG('long task', tabId, m.duration + 'ms');
       await tabStateManager.addLongTask(tabId, {
         duration: m.duration,
         blockingDuration: m.blockingDuration,
@@ -188,8 +240,10 @@ async function handleContentMessage(
 async function refreshBadge(tabId: number): Promise<void> {
   const state = await tabStateManager.get(tabId);
   if (!state) return;
-  const health =
-    state.health === "loading" ? "loading" : classifier.overallHealth(state);
+  // Always recompute health from current data — don't branch on stored state.health
+  // (init sets it to 'loading' which would otherwise keep it stuck there forever)
+  const health = classifier.overallHealth(state);
+  LOG('refreshBadge', tabId, health);
   await tabStateManager.setHealth(tabId, health);
   updateBadge(tabId, health);
 }
