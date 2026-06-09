@@ -5,6 +5,7 @@
   "description": "Real-time page health monitor for everyone.",
   "permissions": [
     "activeTab",
+    "tabs",
     "webNavigation",
     "webRequest",
     "storage",

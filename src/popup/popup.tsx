@@ -51,7 +51,11 @@ function Popup() {
   }, []);
 
   function openDashboard() {
-    chrome.tabs.create({ url: chrome.runtime.getURL('src/dashboard/dashboard.html') });
+    chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
+      const base = chrome.runtime.getURL('src/dashboard/dashboard.html');
+      const url = tab?.id ? `${base}?tabId=${tab.id}` : base;
+      chrome.tabs.create({ url });
+    });
   }
 
   const health = summary?.health ?? 'loading';
