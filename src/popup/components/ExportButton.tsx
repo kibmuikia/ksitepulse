@@ -11,6 +11,7 @@ export function ExportButton({ tabId }: Props) {
 
   return (
     <button
+      type="button"
       onClick={handleExport}
       title="Download HAR file"
       style={{
@@ -24,7 +25,9 @@ export function ExportButton({ tabId }: Props) {
         transition: `background var(--dur) var(--ease-out)`,
       }}
       onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = 'var(--bg-hover)')}
-      onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'var(--bg-elevated)')}
+      onMouseLeave={(e) =>
+        ((e.currentTarget as HTMLElement).style.background = 'var(--bg-elevated)')
+      }
     >
       ↓ HAR
     </button>

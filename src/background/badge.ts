@@ -1,5 +1,5 @@
-import type { Health } from '@shared/types';
 import { DEFAULTS } from '@config/defaults';
+import type { Health } from '@shared/types';
 
 interface BadgeConfig {
   text: string;
@@ -8,9 +8,9 @@ interface BadgeConfig {
 
 const BADGE: Record<Health, BadgeConfig> = {
   loading: { text: DEFAULTS.BADGE_LOADING_TEXT, color: DEFAULTS.BADGE_COLOR_LOADING },
-  good:    { text: DEFAULTS.BADGE_GOOD_TEXT,    color: DEFAULTS.BADGE_COLOR_GOOD    },
-  warning: { text: DEFAULTS.BADGE_WARN_TEXT,    color: DEFAULTS.BADGE_COLOR_WARN    },
-  error:   { text: DEFAULTS.BADGE_ERROR_TEXT,   color: DEFAULTS.BADGE_COLOR_ERROR   },
+  good: { text: DEFAULTS.BADGE_GOOD_TEXT, color: DEFAULTS.BADGE_COLOR_GOOD },
+  warning: { text: DEFAULTS.BADGE_WARN_TEXT, color: DEFAULTS.BADGE_COLOR_WARN },
+  error: { text: DEFAULTS.BADGE_ERROR_TEXT, color: DEFAULTS.BADGE_COLOR_ERROR },
 };
 
 export function updateBadge(tabId: number, health: Health): void {

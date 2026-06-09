@@ -1,13 +1,19 @@
-import type { TabState, Issue, Severity } from '@shared/types';
-import { ERROR_MAP } from '@shared/errorMap';
 import { DEFAULTS } from '@config/defaults';
+import { ERROR_MAP } from '@shared/errorMap';
+import type { Issue, Severity, TabState } from '@shared/types';
 
 const SEVERITY_ORDER: Record<Severity, number> = {
-  critical: 0, high: 1, medium: 2, low: 3,
+  critical: 0,
+  high: 1,
+  medium: 2,
+  low: 3,
 };
 
 const SEVERITY_PENALTY: Record<Severity, number> = {
-  critical: 100, high: 40, medium: 20, low: 8,
+  critical: 100,
+  high: 40,
+  medium: 20,
+  low: 8,
 };
 
 export class IssueClassifier {
@@ -18,37 +24,45 @@ export class IssueClassifier {
     if (total === 0) return issues;
 
     const failed = state.requests.filter(
-      r => r.status === 'failed' || (r.statusCode !== undefined && r.statusCode >= 400),
+      (r) => r.status === 'failed' || (r.statusCode !== undefined && r.statusCode >= 400),
     );
 
     // Total failure — short-circuit
     if (failed.length === total && total >= 3) {
-      return [{
-        id: 'TOTAL_FAILURE',
-        severity: 'critical',
-        title: 'This website is down',
-        detail: 'None of the page resources could load. The server may be offline.',
-        action: 'Try again in a few minutes.',
-      }];
+      return [
+        {
+          id: 'TOTAL_FAILURE',
+          severity: 'critical',
+          title: 'This website is down',
+          detail: 'None of the page resources could load. The server may be offline.',
+          action: 'Try again in a few minutes.',
+        },
+      ];
     }
 
     // 5xx server errors
-    const serverErrors = failed.filter(r => r.statusCode !== undefined && r.statusCode >= 500);
+    const serverErrors = failed.filter((r) => r.statusCode !== undefined && r.statusCode >= 500);
     if (serverErrors.length > 0) {
-      const codes = [...new Set(serverErrors.map(r => r.statusCode))].join(', ');
+      const codes = [...new Set(serverErrors.map((r) => r.statusCode))].join(', ');
       issues.push({
         id: 'SERVER_ERROR',
         severity: 'high',
         title: 'The website is having server problems',
         detail: `Server returned ${codes} error${serverErrors.length > 1 ? 's' : ''} on ${serverErrors.length} resource${serverErrors.length > 1 ? 's' : ''}.`,
         action: "This is on the website's end. Try again later.",
-        technical: serverErrors.map(r => ({ url: r.url, code: r.statusCode })),
+        technical: serverErrors.map((r) => ({ url: r.url, code: r.statusCode })),
         count: serverErrors.length,
       });
     }
 
     // 4xx client errors (excluding 404 which is common and less alarming)
-    const clientErrors = failed.filter(r => r.statusCode !== undefined && r.statusCode >= 400 && r.statusCode < 500 && r.statusCode !== 404);
+    const clientErrors = failed.filter(
+      (r) =>
+        r.statusCode !== undefined &&
+        r.statusCode >= 400 &&
+        r.statusCode < 500 &&
+        r.statusCode !== 404,
+    );
     if (clientErrors.length > 0) {
       issues.push({
         id: 'CLIENT_ERROR',
@@ -61,9 +75,9 @@ export class IssueClassifier {
     }
 
     // Network errors — match against ERROR_MAP
-    const netFailed = failed.filter(r => r.error);
+    const netFailed = failed.filter((r) => r.error);
     for (const [key, entry] of Object.entries(ERROR_MAP)) {
-      const matching = netFailed.filter(r => r.error?.includes(key));
+      const matching = netFailed.filter((r) => r.error?.includes(key));
       if (matching.length > 0) {
         issues.push({
           id: key,
@@ -110,7 +124,7 @@ export class IssueClassifier {
     }
 
     // Console: framework crashes
-    const frameworkErrors = state.console.filter(c =>
+    const frameworkErrors = state.console.filter((c) =>
       ['REACT_ERROR', 'VUE_WARN', 'ANGULAR_ERROR', 'UNHANDLED_PROMISE'].includes(c.category),
     );
     if (frameworkErrors.length > 0) {
@@ -125,7 +139,7 @@ export class IssueClassifier {
     }
 
     // CORS errors
-    const corsErrors = state.console.filter(c => c.category === 'CORS_ERROR');
+    const corsErrors = state.console.filter((c) => c.category === 'CORS_ERROR');
     if (corsErrors.length > 0) {
       issues.push({
         id: 'CORS_ERROR',
@@ -138,7 +152,7 @@ export class IssueClassifier {
     }
 
     // CSP violations
-    const cspErrors = state.console.filter(c => c.category === 'CSP_VIOLATION');
+    const cspErrors = state.console.filter((c) => c.category === 'CSP_VIOLATION');
     if (cspErrors.length > 0) {
       issues.push({
         id: 'CSP_VIOLATION',

@@ -1,6 +1,6 @@
-import { useState } from 'preact/hooks';
+import { applyTheme, setUserConfig } from '@config/userConfig';
 import type { Theme } from '@shared/types';
-import { setUserConfig, applyTheme } from '@config/userConfig';
+import { useState } from 'preact/hooks';
 
 const THEMES: Theme[] = ['auto', 'light', 'dark'];
 const ICONS: Record<Theme, string> = { auto: 'A', light: '☀', dark: '☾' };
@@ -22,11 +22,13 @@ export function ThemeToggle({ current }: Props) {
 
   return (
     <button
+      type="button"
       onClick={cycle}
       title={`Theme: ${LABELS[theme]} — click to cycle`}
       aria-label={`Current theme: ${LABELS[theme]}. Click to change.`}
       style={{
-        width: 28, height: 28,
+        width: 28,
+        height: 28,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',

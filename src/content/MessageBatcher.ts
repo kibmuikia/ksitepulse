@@ -1,5 +1,5 @@
 import { DEFAULTS } from '@config/defaults';
-import type { KspMessage, BatchMessage } from '@shared/types';
+import type { BatchMessage, KspMessage } from '@shared/types';
 
 /**
  * Batches outgoing messages from the content script and flushes them

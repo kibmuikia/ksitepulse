@@ -16,7 +16,8 @@ export function HealthRing({ score, health }: Props) {
 
   return (
     <svg
-      width="88" height="88"
+      width="88"
+      height="88"
       viewBox="0 0 88 88"
       aria-label={`Health score ${score}`}
       role="img"
@@ -24,7 +25,9 @@ export function HealthRing({ score, health }: Props) {
     >
       {/* Track */}
       <circle
-        cx="44" cy="44" r={RADIUS}
+        cx="44"
+        cy="44"
+        r={RADIUS}
         fill="none"
         stroke={color}
         stroke-width="7"
@@ -32,7 +35,9 @@ export function HealthRing({ score, health }: Props) {
       />
       {/* Score arc */}
       <circle
-        cx="44" cy="44" r={RADIUS}
+        cx="44"
+        cy="44"
+        r={RADIUS}
         fill="none"
         stroke={color}
         stroke-width="7"
@@ -44,7 +49,8 @@ export function HealthRing({ score, health }: Props) {
       />
       {/* Score label */}
       <text
-        x="44" y="42"
+        x="44"
+        y="42"
         dominant-baseline="middle"
         text-anchor="middle"
         fill={color}
@@ -57,7 +63,8 @@ export function HealthRing({ score, health }: Props) {
       {/* Health label */}
       {health !== 'loading' && (
         <text
-          x="44" y="58"
+          x="44"
+          y="58"
           dominant-baseline="middle"
           text-anchor="middle"
           fill={color}

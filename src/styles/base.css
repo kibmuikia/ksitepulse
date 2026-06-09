@@ -49,18 +49,38 @@ body {
 }
 
 /* ── Utility classes ────────────────────────────────────────────── */
-.text-primary    { color: var(--text-primary); }
-.text-secondary  { color: var(--text-secondary); }
-.text-muted      { color: var(--text-muted); }
+.text-primary {
+  color: var(--text-primary);
+}
+.text-secondary {
+  color: var(--text-secondary);
+}
+.text-muted {
+  color: var(--text-muted);
+}
 
-.text-xs   { font-size: var(--text-xs); }
-.text-sm   { font-size: var(--text-sm); }
-.text-base { font-size: var(--text-base); }
-.text-md   { font-size: var(--text-md); }
-.text-mono { font-family: var(--font-mono); }
+.text-xs {
+  font-size: var(--text-xs);
+}
+.text-sm {
+  font-size: var(--text-sm);
+}
+.text-base {
+  font-size: var(--text-base);
+}
+.text-md {
+  font-size: var(--text-md);
+}
+.text-mono {
+  font-family: var(--font-mono);
+}
 
-.font-medium  { font-weight: 500; }
-.font-semibold { font-weight: 600; }
+.font-medium {
+  font-weight: 500;
+}
+.font-semibold {
+  font-weight: 600;
+}
 
 .truncate {
   overflow: hidden;
@@ -81,4 +101,36 @@ button:focus-visible {
   outline: 2px solid var(--health-good);
   outline-offset: 2px;
   border-radius: var(--radius-sm);
+}
+
+/* ── Animations ─────────────────────────────────────────────────── */
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--border-default);
+  border-top-color: var(--health-good);
+  border-radius: 50%;
+  animation: spin 0.65s linear infinite;
+  flex-shrink: 0;
+}
+
+.fade-in {
+  animation: fade-in var(--dur-slow) var(--ease-out) both;
 }

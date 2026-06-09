@@ -1,5 +1,5 @@
+import type { Mode, Theme } from '@shared/types';
 import { DEFAULTS } from './defaults';
-import type { Theme, Mode } from '@shared/types';
 
 export interface UserConfig {
   theme: Theme;
@@ -17,7 +17,7 @@ export async function getUserConfig(): Promise<UserConfig> {
     mode: DEFAULTS.DEFAULT_MODE,
     ttfbWarnMs: DEFAULTS.TTFB_WARN_MS,
     ttfbPoorMs: DEFAULTS.TTFB_POOR_MS,
-    ...(result[CONFIG_KEY] as Partial<UserConfig> ?? {}),
+    ...((result[CONFIG_KEY] as Partial<UserConfig>) ?? {}),
   };
 }
 

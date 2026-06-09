@@ -3,7 +3,7 @@ import type { ConsoleMessage } from '@shared/types';
 import type { MessageBatcher } from './MessageBatcher';
 
 const LEVELS = ['log', 'warn', 'error', 'info', 'debug'] as const;
-type Level = typeof LEVELS[number];
+type Level = (typeof LEVELS)[number];
 
 function classify(msg: string, level: Level): string {
   for (const [name, regex] of Object.entries(PATTERNS)) {
@@ -14,8 +14,11 @@ function classify(msg: string, level: Level): string {
 
 function tryStringify(val: unknown): string {
   if (typeof val === 'string') return val;
-  try { return JSON.stringify(val) ?? String(val); }
-  catch { return '[circular]'; }
+  try {
+    return JSON.stringify(val) ?? String(val);
+  } catch {
+    return '[circular]';
+  }
 }
 
 export function installConsoleProxy(batcher: MessageBatcher): void {
@@ -25,7 +28,7 @@ export function installConsoleProxy(batcher: MessageBatcher): void {
       if (!(LEVELS as readonly string[]).includes(prop) || typeof original !== 'function') {
         return original;
       }
-      return function (...args: unknown[]) {
+      return (...args: unknown[]) => {
         (original as (...a: unknown[]) => void).apply(target, args);
         const message = args.map(tryStringify).join(' ');
         const entry: ConsoleMessage = {
@@ -58,7 +61,9 @@ export function installConsoleProxy(batcher: MessageBatcher): void {
             timestamp: Date.now(),
           });
         };
-      } catch { /* level is read-only, skip */ }
+      } catch {
+        /* level is read-only, skip */
+      }
     }
   }
 }

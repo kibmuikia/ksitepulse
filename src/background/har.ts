@@ -1,32 +1,51 @@
-import type { TabState, RequestRecord } from '@shared/types';
+import type { RequestRecord, TabState } from '@shared/types';
 
 interface HarEntry {
   startedDateTime: string;
   time: number;
-  request: { method: string; url: string; httpVersion: string; headers: unknown[]; queryString: unknown[]; headersSize: number; bodySize: number };
-  response: { status: number; statusText: string; httpVersion: string; headers: unknown[]; content: { size: number; mimeType: string }; redirectURL: string; headersSize: number; bodySize: number };
+  request: {
+    method: string;
+    url: string;
+    httpVersion: string;
+    headers: unknown[];
+    queryString: unknown[];
+    headersSize: number;
+    bodySize: number;
+  };
+  response: {
+    status: number;
+    statusText: string;
+    httpVersion: string;
+    headers: unknown[];
+    content: { size: number; mimeType: string };
+    redirectURL: string;
+    headersSize: number;
+    bodySize: number;
+  };
   cache: Record<string, never>;
   timings: { send: number; wait: number; receive: number };
 }
 
 export function buildHar(state: TabState): object {
   const entries: HarEntry[] = state.requests
-    .filter(r => r.status !== 'pending')
-    .map(r => requestToEntry(r, state.startTime));
+    .filter((r) => r.status !== 'pending')
+    .map((r) => requestToEntry(r, state.startTime));
 
   return {
     log: {
       version: '1.2',
       creator: { name: 'ksitepulse', version: '1.0.0' },
-      pages: [{
-        startedDateTime: new Date(state.startTime).toISOString(),
-        id: 'page_1',
-        title: state.url,
-        pageTimings: {
-          onContentLoad: state.nav?.domContentLoaded ?? -1,
-          onLoad: state.nav?.loadComplete ?? -1,
+      pages: [
+        {
+          startedDateTime: new Date(state.startTime).toISOString(),
+          id: 'page_1',
+          title: state.url,
+          pageTimings: {
+            onContentLoad: state.nav?.domContentLoaded ?? -1,
+            onLoad: state.nav?.loadComplete ?? -1,
+          },
         },
-      }],
+      ],
       entries,
     },
   };
@@ -51,7 +70,7 @@ function requestToEntry(r: RequestRecord, pageStart: number): HarEntry {
     },
     response: {
       status,
-      statusText: r.status === 'failed' ? r.error ?? 'Error' : String(status),
+      statusText: r.status === 'failed' ? (r.error ?? 'Error') : String(status),
       httpVersion: 'HTTP/1.1',
       headers: [],
       content: { size: r.transferSize ?? -1, mimeType: mimeFromType(r.type) },

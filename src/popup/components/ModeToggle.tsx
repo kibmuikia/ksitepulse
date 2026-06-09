@@ -1,5 +1,5 @@
-import type { Mode } from '@shared/types';
 import { setUserConfig } from '@config/userConfig';
+import type { Mode } from '@shared/types';
 
 interface Props {
   current: Mode;
@@ -17,11 +17,13 @@ export function ModeToggle({ current, onChange }: Props) {
 
   return (
     <button
+      type="button"
       onClick={toggle}
       title={isDev ? 'Switch to Everyday mode' : 'Switch to Developer mode'}
       aria-label={`Mode: ${current}. Click to toggle.`}
       style={{
-        width: 28, height: 28,
+        width: 28,
+        height: 28,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',

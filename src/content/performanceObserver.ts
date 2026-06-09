@@ -1,11 +1,15 @@
-import { onLCP, onCLS, onINP, onFCP, onTTFB } from 'web-vitals';
-import type { VitalMessage, NavMessage, ResourceMessage, LongTaskMessage } from '@shared/types';
 import { DEFAULTS } from '@config/defaults';
+import type { LongTaskMessage, NavMessage, ResourceMessage, VitalMessage } from '@shared/types';
+import { onCLS, onFCP, onINP, onLCP, onTTFB } from 'web-vitals';
 import type { MessageBatcher } from './MessageBatcher';
 
 export function installPerformanceObservers(batcher: MessageBatcher): void {
   // ── Web Vitals (INP replaces FID in web-vitals v5) ──────────────
-  const reportVital = (metric: { name: string; value: number; rating: 'good' | 'needs-improvement' | 'poor' }) => {
+  const reportVital = (metric: {
+    name: string;
+    value: number;
+    rating: 'good' | 'needs-improvement' | 'poor';
+  }) => {
     const msg: VitalMessage = {
       type: 'KSPULSE_VITAL',
       name: metric.name,
@@ -22,7 +26,7 @@ export function installPerformanceObservers(batcher: MessageBatcher): void {
   onTTFB(reportVital);
 
   // ── Navigation timing ─────────────────────────────────────────────
-  const navObserver = new PerformanceObserver(list => {
+  const navObserver = new PerformanceObserver((list) => {
     const nav = list.getEntries()[0] as PerformanceNavigationTiming;
     if (!nav) return;
     const msg: NavMessage = {
@@ -35,10 +39,14 @@ export function installPerformanceObservers(batcher: MessageBatcher): void {
     };
     batcher.enqueue(msg);
   });
-  try { navObserver.observe({ type: 'navigation', buffered: true }); } catch { /* unavailable */ }
+  try {
+    navObserver.observe({ type: 'navigation', buffered: true });
+  } catch {
+    /* unavailable */
+  }
 
   // ── Resource timing ───────────────────────────────────────────────
-  const resourceObserver = new PerformanceObserver(list => {
+  const resourceObserver = new PerformanceObserver((list) => {
     for (const entry of list.getEntries() as PerformanceResourceTiming[]) {
       const msg: ResourceMessage = {
         type: 'KSPULSE_RESOURCE',
@@ -46,21 +54,28 @@ export function installPerformanceObservers(batcher: MessageBatcher): void {
         initiatorType: entry.initiatorType,
         duration: Math.round(entry.duration),
         transferSize: entry.transferSize,
-        deliveryType: 'deliveryType' in entry
-          ? (entry as unknown as { deliveryType: string }).deliveryType
-          : entry.transferSize === 0 ? 'cache' : 'network',
+        deliveryType:
+          'deliveryType' in entry
+            ? (entry as unknown as { deliveryType: string }).deliveryType
+            : entry.transferSize === 0
+              ? 'cache'
+              : 'network',
         nextHopProtocol: entry.nextHopProtocol,
         timestamp: Date.now(),
       };
       batcher.enqueue(msg);
     }
   });
-  try { resourceObserver.observe({ type: 'resource', buffered: true }); } catch { /* unavailable */ }
+  try {
+    resourceObserver.observe({ type: 'resource', buffered: true });
+  } catch {
+    /* unavailable */
+  }
 
   // ── Long Animation Frames (Chrome 123+) — primary ─────────────────
   let loafInstalled = false;
   try {
-    const loafObserver = new PerformanceObserver(list => {
+    const loafObserver = new PerformanceObserver((list) => {
       for (const entry of list.getEntries()) {
         const loaf = entry as PerformanceEntry & { blockingDuration?: number };
         const blocking = loaf.blockingDuration ?? entry.duration;
@@ -77,12 +92,14 @@ export function installPerformanceObservers(batcher: MessageBatcher): void {
     });
     loafObserver.observe({ type: 'long-animation-frame', buffered: true });
     loafInstalled = true;
-  } catch { /* Chrome < 123 */ }
+  } catch {
+    /* Chrome < 123 */
+  }
 
   // ── Long Tasks (Chrome 58+) — fallback ────────────────────────────
   if (!loafInstalled) {
     try {
-      const ltObserver = new PerformanceObserver(list => {
+      const ltObserver = new PerformanceObserver((list) => {
         for (const entry of list.getEntries()) {
           if (entry.duration < DEFAULTS.LONG_TASK_MS) continue;
           const msg: LongTaskMessage = {
@@ -96,6 +113,8 @@ export function installPerformanceObservers(batcher: MessageBatcher): void {
         }
       });
       ltObserver.observe({ type: 'longtask', buffered: true });
-    } catch { /* unavailable in cross-origin iframes */ }
+    } catch {
+      /* unavailable in cross-origin iframes */
+    }
   }
 }

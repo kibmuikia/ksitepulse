@@ -1,12 +1,12 @@
-import type {
-  TabState,
-  RequestRecord,
-  ConsoleEntry,
-  NavTiming,
-  LongTask,
-  ResourceMessage,
-} from '@shared/types';
 import { DEFAULTS } from '@config/defaults';
+import type {
+  ConsoleEntry,
+  LongTask,
+  NavTiming,
+  RequestRecord,
+  ResourceMessage,
+  TabState,
+} from '@shared/types';
 
 export class TabStateManager {
   private key(tabId: number) {
@@ -37,8 +37,11 @@ export class TabStateManager {
     await chrome.storage.session.remove(this.key(tabId));
   }
 
-  async addRequest(tabId: number, req: Pick<RequestRecord, 'requestId' | 'url' | 'type' | 'timeStamp'>): Promise<void> {
-    await this.mutate(tabId, state => {
+  async addRequest(
+    tabId: number,
+    req: Pick<RequestRecord, 'requestId' | 'url' | 'type' | 'timeStamp'>,
+  ): Promise<void> {
+    await this.mutate(tabId, (state) => {
       state.requests.push({ ...req, status: 'pending' });
       if (state.requests.length > DEFAULTS.MAX_REQUESTS) state.requests.shift();
     });
@@ -49,48 +52,53 @@ export class TabStateManager {
     requestId: string,
     data: Pick<RequestRecord, 'statusCode' | 'fromCache' | 'duration'>,
   ): Promise<void> {
-    await this.mutate(tabId, state => {
-      const req = state.requests.find(r => r.requestId === requestId);
+    await this.mutate(tabId, (state) => {
+      const req = state.requests.find((r) => r.requestId === requestId);
       if (req) Object.assign(req, { status: 'complete', ...data });
     });
   }
 
   async failRequest(tabId: number, requestId: string, error: string): Promise<void> {
-    await this.mutate(tabId, state => {
-      const req = state.requests.find(r => r.requestId === requestId);
+    await this.mutate(tabId, (state) => {
+      const req = state.requests.find((r) => r.requestId === requestId);
       if (req) Object.assign(req, { status: 'failed', error });
     });
   }
 
   async addConsoleEntry(tabId: number, entry: ConsoleEntry): Promise<void> {
-    await this.mutate(tabId, state => {
+    await this.mutate(tabId, (state) => {
       state.console.push(entry);
       if (state.console.length > DEFAULTS.MAX_CONSOLE_ENTRIES) state.console.shift();
     });
   }
 
-  async updateVital(tabId: number, name: string, value: number, rating: 'good' | 'needs-improvement' | 'poor'): Promise<void> {
-    await this.mutate(tabId, state => {
+  async updateVital(
+    tabId: number,
+    name: string,
+    value: number,
+    rating: 'good' | 'needs-improvement' | 'poor',
+  ): Promise<void> {
+    await this.mutate(tabId, (state) => {
       state.vitals[name] = { value, rating };
     });
   }
 
   async updateNav(tabId: number, nav: NavTiming): Promise<void> {
-    await this.mutate(tabId, state => {
+    await this.mutate(tabId, (state) => {
       state.nav = nav;
     });
   }
 
   async addLongTask(tabId: number, task: LongTask): Promise<void> {
-    await this.mutate(tabId, state => {
+    await this.mutate(tabId, (state) => {
       state.longTasks.push(task);
       if (state.longTasks.length > DEFAULTS.MAX_LONG_TASKS) state.longTasks.shift();
     });
   }
 
   async updateResourceTiming(tabId: number, msg: ResourceMessage): Promise<void> {
-    await this.mutate(tabId, state => {
-      const req = state.requests.find(r => r.url === msg.name && r.status === 'complete');
+    await this.mutate(tabId, (state) => {
+      const req = state.requests.find((r) => r.url === msg.name && r.status === 'complete');
       if (req) {
         req.transferSize = msg.transferSize;
         if (req.duration == null && msg.duration > 0) req.duration = msg.duration;
@@ -100,7 +108,7 @@ export class TabStateManager {
   }
 
   async setHealth(tabId: number, health: TabState['health']): Promise<void> {
-    await this.mutate(tabId, state => {
+    await this.mutate(tabId, (state) => {
       state.health = health;
     });
   }
