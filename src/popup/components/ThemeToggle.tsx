@@ -35,7 +35,7 @@ export function ThemeToggle({ current }: Props) {
         borderRadius: 'var(--radius-sm)',
         fontSize: 'var(--text-sm)',
         color: 'var(--text-secondary)',
-        transition: `color var(--dur) var(--ease-out), background var(--dur) var(--ease-out)`,
+        transition: 'color var(--dur) var(--ease-out), background var(--dur) var(--ease-out)',
       }}
       onMouseEnter={(e) => ((e.target as HTMLElement).style.background = 'var(--bg-hover)')}
       onMouseLeave={(e) => ((e.target as HTMLElement).style.background = '')}

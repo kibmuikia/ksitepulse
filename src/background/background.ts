@@ -228,7 +228,7 @@ async function handleContentMessage(tabId: number, msg: KspMessage): Promise<voi
     }
     case 'KSPULSE_LONG_TASK': {
       const m = msg as LongTaskMessage;
-      LOG('long task', tabId, m.duration + 'ms');
+      LOG('long task', tabId, `${m.duration}ms`);
       await tabStateManager.addLongTask(tabId, {
         duration: m.duration,
         blockingDuration: m.blockingDuration,

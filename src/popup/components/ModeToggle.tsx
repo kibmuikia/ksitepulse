@@ -1,4 +1,5 @@
 import { setUserConfig } from '@config/userConfig';
+
 import type { Mode } from '@shared/types';
 
 interface Props {
@@ -32,7 +33,7 @@ export function ModeToggle({ current, onChange }: Props) {
         fontFamily: 'var(--font-mono)',
         color: isDev ? 'var(--health-good)' : 'var(--text-secondary)',
         fontWeight: isDev ? 600 : 400,
-        transition: `color var(--dur) var(--ease-out), background var(--dur) var(--ease-out)`,
+        transition: 'color var(--dur) var(--ease-out), background var(--dur) var(--ease-out)',
       }}
       onMouseEnter={(e) => ((e.target as HTMLElement).style.background = 'var(--bg-hover)')}
       onMouseLeave={(e) => ((e.target as HTMLElement).style.background = '')}

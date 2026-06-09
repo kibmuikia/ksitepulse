@@ -45,7 +45,7 @@ export function HealthRing({ score, health }: Props) {
         stroke-dasharray={CIRCUMFERENCE}
         stroke-dashoffset={offset}
         transform="rotate(-90 44 44)"
-        style={{ transition: `stroke-dashoffset var(--dur-slow) var(--ease-out)` }}
+        style={{ transition: 'stroke-dashoffset var(--dur-slow) var(--ease-out)' }}
       />
       {/* Score label */}
       <text

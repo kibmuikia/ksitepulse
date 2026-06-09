@@ -22,7 +22,7 @@ export function ExportButton({ tabId }: Props) {
         color: 'var(--text-secondary)',
         fontSize: 'var(--text-xs)',
         fontWeight: 500,
-        transition: `background var(--dur) var(--ease-out)`,
+        transition: 'background var(--dur) var(--ease-out)',
       }}
       onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = 'var(--bg-hover)')}
       onMouseLeave={(e) =>

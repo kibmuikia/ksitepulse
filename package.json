@@ -33,6 +33,7 @@
   "scripts": {
     "preinstall": "npx only-allow pnpm",
     "dev": "vite build --watch",
+    "prebuild": "biome check src",
     "build": "vite build",
     "tsc": "tsc --noEmit && tsc --project tsconfig.node.json --noEmit",
     "lint": "biome check src",
