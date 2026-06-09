@@ -17,6 +17,7 @@ function Popup() {
   const [mode, setMode] = useState<Mode>('everyday');
   const [theme, setTheme] = useState<Theme>('auto');
   const [loading, setLoading] = useState(true);
+  const [activeTabId, setActiveTabId] = useState<number | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -32,6 +33,7 @@ function Popup() {
           setLoading(false);
           return;
         }
+        setActiveTabId(tab.id);
         LOG('sending KSPULSE_GET_STATE for tab', tab.id);
         chrome.runtime.sendMessage(
           { type: 'KSPULSE_GET_STATE', tabId: tab.id },
@@ -49,6 +51,13 @@ function Popup() {
       });
     })();
   }, []);
+
+  function refreshPage() {
+    if (!activeTabId) return;
+    LOG('refresh tab', activeTabId);
+    chrome.tabs.reload(activeTabId);
+    window.close();
+  }
 
   function openDashboard() {
     chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
@@ -76,6 +85,24 @@ function Popup() {
           ksite<span style={{ color: 'var(--health-good)' }}>pulse</span>
         </span>
         <div style={{ display: 'flex', gap: 'var(--space-1)' }}>
+          <button
+            onClick={refreshPage}
+            disabled={!activeTabId}
+            title="Reload page"
+            style={{
+              background: 'none',
+              border: '1px solid var(--border-subtle)',
+              borderRadius: 'var(--radius-sm)',
+              width: 26, height: 26,
+              cursor: activeTabId ? 'pointer' : 'default',
+              color: 'var(--text-secondary)',
+              fontSize: 14,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              opacity: activeTabId ? 1 : 0.4,
+            }}
+          >
+            ↻
+          </button>
           <ThemeToggle current={theme} />
           <ModeToggle current={mode} onChange={setMode} />
         </div>

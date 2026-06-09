@@ -2,7 +2,7 @@ import { render } from 'preact';
 import { useEffect, useState, useRef } from 'preact/hooks';
 import type { ComponentChildren } from 'preact';
 import { getUserConfig, applyTheme } from '@config/userConfig';
-import type { TabSummary, Health, Issue, Theme } from '@shared/types';
+import type { TabSummary, Health, Issue, Theme, RequestRecord, ConsoleEntry } from '@shared/types';
 import { HealthRing } from '../popup/components/HealthRing';
 import '../styles/tokens.css';
 import '../styles/base.css';
@@ -272,7 +272,179 @@ function Content({ summary, health, score }: { summary: TabSummary; health: Heal
           </div>
         </Section>
       )}
+
+      {/* Requests */}
+      <RequestsTable requests={summary.requests} />
+
+      {/* Console */}
+      {summary.console.length > 0 && (
+        <ConsoleLog entries={summary.console} startTime={summary.startTime} />
+      )}
     </div>
+  );
+}
+
+// ── Requests table ─────────────────────────────────────────────────
+
+function RequestsTable({ requests }: { requests: RequestRecord[] }) {
+  const [failedOnly, setFailedOnly] = useState(false);
+  const shown = (failedOnly ? requests.filter(r => r.status === 'failed') : requests)
+    .slice().reverse().slice(0, 150);
+
+  function statusColor(r: RequestRecord): string {
+    if (r.status === 'failed') return 'var(--health-error)';
+    if (!r.statusCode) return 'var(--text-muted)';
+    if (r.statusCode >= 500) return 'var(--health-error)';
+    if (r.statusCode >= 400) return 'var(--health-warning)';
+    return 'var(--health-good)';
+  }
+
+  function statusLabel(r: RequestRecord): string {
+    if (r.status === 'failed') return r.error?.replace('net::', '') ?? 'ERR';
+    if (r.status === 'pending') return '…';
+    return String(r.statusCode ?? '—');
+  }
+
+  return (
+    <Section title={`Requests (${requests.length})`}>
+      {/* Filter bar */}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 'var(--space-2)' }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-1)', fontSize: 'var(--text-xs)', color: 'var(--text-muted)', cursor: 'pointer' }}>
+          <input
+            type="checkbox"
+            checked={failedOnly}
+            onChange={e => setFailedOnly((e.target as HTMLInputElement).checked)}
+            style={{ accentColor: 'var(--health-error)' }}
+          />
+          Failed only
+        </label>
+      </div>
+
+      {shown.length === 0 ? (
+        <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)', padding: 'var(--space-2) 0' }}>
+          {failedOnly ? 'No failed requests.' : 'No requests recorded.'}
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          {/* Header */}
+          <div style={{ display: 'grid', gridTemplateColumns: '52px 1fr 70px 60px 60px', gap: 'var(--space-2)', padding: '0 var(--space-2)', fontSize: 'var(--text-xs)', color: 'var(--text-muted)', fontWeight: 600, letterSpacing: '0.04em' }}>
+            <span>STATUS</span><span>URL</span><span>TYPE</span><span style={{ textAlign: 'right' }}>DURATION</span><span style={{ textAlign: 'right' }}>SIZE</span>
+          </div>
+          {shown.map(r => (
+            <div
+              key={r.requestId}
+              style={{
+                display: 'grid', gridTemplateColumns: '52px 1fr 70px 60px 60px',
+                gap: 'var(--space-2)', padding: 'var(--space-1) var(--space-2)',
+                background: r.status === 'failed' ? 'rgba(255,77,79,0.04)' : 'var(--bg-surface)',
+                border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)',
+                alignItems: 'center',
+              }}
+            >
+              <span style={{ fontSize: 'var(--text-xs)', fontWeight: 600, color: statusColor(r), fontFamily: 'var(--font-mono)' }}>
+                {statusLabel(r)}
+              </span>
+              <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', fontFamily: 'var(--font-mono)' }}
+                title={r.url}>
+                {r.url.replace(/^https?:\/\//, '')}
+              </span>
+              <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>{r.type}</span>
+              <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', textAlign: 'right', fontFamily: 'var(--font-mono)' }}>
+                {r.duration != null ? fmtMs(r.duration) : '—'}
+              </span>
+              <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', textAlign: 'right', fontFamily: 'var(--font-mono)' }}>
+                {r.transferSize ? fmtBytes(r.transferSize) : r.fromCache ? 'cache' : '—'}
+              </span>
+            </div>
+          ))}
+          {requests.length > 150 && (
+            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', textAlign: 'center', paddingTop: 'var(--space-1)' }}>
+              Showing 150 most recent of {requests.length}
+            </div>
+          )}
+        </div>
+      )}
+    </Section>
+  );
+}
+
+// ── Console log ────────────────────────────────────────────────────
+
+function ConsoleLog({ entries, startTime }: { entries: ConsoleEntry[]; startTime: number }) {
+  const [filter, setFilter] = useState<'all' | 'error' | 'warn'>('all');
+  const filtered = filter === 'all' ? entries : entries.filter(e => e.level === filter);
+  const shown = filtered.slice().reverse().slice(0, 200);
+
+  const levelColor: Record<string, string> = {
+    error: 'var(--console-error)',
+    warn: 'var(--console-warn)',
+    info: 'var(--console-info)',
+    log: 'var(--console-log)',
+  };
+
+  const levelIcon: Record<string, string> = { error: '✗', warn: '!', info: 'i', log: '›' };
+  const errorCount = entries.filter(e => e.level === 'error').length;
+  const warnCount = entries.filter(e => e.level === 'warn').length;
+
+  return (
+    <Section title={`Console (${entries.length})`}>
+      {/* Filter chips */}
+      <div style={{ display: 'flex', gap: 'var(--space-2)', marginBottom: 'var(--space-2)' }}>
+        {(['all', 'error', 'warn'] as const).map(f => (
+          <button
+            key={f}
+            onClick={() => setFilter(f)}
+            style={{
+              padding: '2px 8px', borderRadius: 'var(--radius-sm)',
+              border: `1px solid ${filter === f ? 'var(--border-default)' : 'var(--border-subtle)'}`,
+              background: filter === f ? 'var(--bg-elevated)' : 'transparent',
+              fontSize: 'var(--text-xs)', cursor: 'pointer',
+              color: f === 'error' ? 'var(--console-error)' : f === 'warn' ? 'var(--console-warn)' : 'var(--text-secondary)',
+              fontWeight: filter === f ? 600 : 400,
+            }}
+          >
+            {f === 'all' ? `All (${entries.length})` : f === 'error' ? `Errors (${errorCount})` : `Warns (${warnCount})`}
+          </button>
+        ))}
+      </div>
+
+      <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
+        {shown.map((entry, i) => {
+          const relMs = entry.timestamp - startTime;
+          const relSec = relMs > 0 ? `+${(relMs / 1000).toFixed(2)}s` : '';
+          return (
+            <div
+              key={i}
+              style={{
+                display: 'grid', gridTemplateColumns: '16px 52px 1fr',
+                gap: 'var(--space-2)', padding: '3px var(--space-3)',
+                borderBottom: i < shown.length - 1 ? '1px solid var(--border-subtle)' : 'none',
+                alignItems: 'baseline',
+              }}
+            >
+              <span style={{ fontSize: 'var(--text-xs)', color: levelColor[entry.level] ?? 'var(--text-muted)', fontWeight: 600 }}>
+                {levelIcon[entry.level] ?? '·'}
+              </span>
+              <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                {relSec}
+              </span>
+              <span style={{
+                fontSize: 'var(--text-xs)', fontFamily: 'var(--font-mono)',
+                color: levelColor[entry.level] ?? 'var(--text-primary)',
+                whiteSpace: 'pre-wrap', wordBreak: 'break-all', lineHeight: 1.5,
+              }}>
+                {entry.message}
+              </span>
+            </div>
+          );
+        })}
+        {filtered.length > 200 && (
+          <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', textAlign: 'center', padding: 'var(--space-2)' }}>
+            Showing 200 most recent of {filtered.length}
+          </div>
+        )}
+      </div>
+    </Section>
   );
 }
 
