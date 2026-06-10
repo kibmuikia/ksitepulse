@@ -36,6 +36,10 @@ body {
   background: var(--bg-base);
 }
 
+.row-hover:hover {
+  background: var(--bg-elevated) !important;
+}
+
 /* Scrollbar */
 ::-webkit-scrollbar {
   width: 5px;

@@ -30,6 +30,7 @@ export interface RequestRecord {
 }
 
 export interface ConsoleEntry {
+  id: string;
   level: string;
   category: string;
   message: string;

@@ -197,6 +197,7 @@ async function handleContentMessage(tabId: number, msg: KspMessage): Promise<voi
     case 'KSPULSE_CONSOLE': {
       const m = msg as ConsoleMessage;
       await tabStateManager.addConsoleEntry(tabId, {
+        id: `${tabId}-${Date.now()}-${Math.random()}`,
         level: m.level,
         category: m.category,
         message: m.message,

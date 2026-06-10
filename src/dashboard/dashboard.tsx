@@ -1,8 +1,9 @@
 import { applyTheme, getUserConfig } from '@config/userConfig';
+
 import type { ConsoleEntry, Health, Issue, RequestRecord, TabSummary, Theme } from '@shared/types';
 import { render } from 'preact';
 import type { ComponentChildren } from 'preact';
-import { useEffect, useRef, useState } from 'preact/hooks';
+import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { HealthRing } from '../popup/components/HealthRing';
 import '../styles/tokens.css';
 import '../styles/base.css';
@@ -545,7 +546,10 @@ function Content({
 }) {
   const issues = summary.issues ?? [];
   const vitals = Object.entries(summary.vitals);
-  const failedReqs = summary.requests.filter((r) => r.status === 'failed');
+  const failedReqs = useMemo(
+    () => summary.requests.filter((r) => r.status === 'failed'),
+    [summary.requests],
+  );
 
   return (
     <div
@@ -742,36 +746,38 @@ function RequestsTable({
   const [methodFilter, setMethodFilter] = useState<MethodFilter>('ALL');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL');
   const [page, setPage] = useState(1);
-  const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
+  // const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
 
   function applyFilter<T>(setter: (v: T) => void, v: T) {
     setter(v);
     setPage(1);
   }
 
-  const filtered = requests
-    .slice()
-    .reverse()
-    .filter((r) => {
-      if (search && !r.url.toLowerCase().includes(search.toLowerCase())) return false;
-      if (methodFilter !== 'ALL') {
-        const m = (r.method ?? '').toUpperCase();
-        if (methodFilter === 'OTHER') {
-          if (KNOWN_METHODS.includes(m as MethodFilter)) return false;
-        } else {
-          if (m !== methodFilter) return false;
+  const filtered = useMemo(() => {
+    return requests
+      .slice()
+      .reverse()
+      .filter((r) => {
+        if (search && !r.url.toLowerCase().includes(search.toLowerCase())) return false;
+        if (methodFilter !== 'ALL') {
+          const m = (r.method ?? '').toUpperCase();
+          if (methodFilter === 'OTHER') {
+            if (KNOWN_METHODS.includes(m as MethodFilter)) return false;
+          } else {
+            if (m !== methodFilter) return false;
+          }
         }
-      }
-      if (statusFilter !== 'ALL') {
-        if (statusFilter === 'failed') return r.status === 'failed';
-        const code = r.statusCode ?? 0;
-        if (statusFilter === '2xx') return code >= 200 && code < 300;
-        if (statusFilter === '3xx') return code >= 300 && code < 400;
-        if (statusFilter === '4xx') return code >= 400 && code < 500;
-        if (statusFilter === '5xx') return code >= 500;
-      }
-      return true;
-    });
+        if (statusFilter !== 'ALL') {
+          if (statusFilter === 'failed') return r.status === 'failed';
+          const code = r.statusCode ?? 0;
+          if (statusFilter === '2xx') return code >= 200 && code < 300;
+          if (statusFilter === '3xx') return code >= 300 && code < 400;
+          if (statusFilter === '4xx') return code >= 400 && code < 500;
+          if (statusFilter === '5xx') return code >= 500;
+        }
+        return true;
+      });
+  }, [requests, search, methodFilter, statusFilter]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / REQ_PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
@@ -890,29 +896,26 @@ function RequestsTable({
           {shown.map((r, i) => {
             const ms = methodStyle(r.method);
             const methodLabel = (r.method ?? r.type).toUpperCase().slice(0, 7);
-            const isHovered = hoveredIdx === i;
+            // const isHovered = hoveredIdx === i;
+            // onMouseEnter={() => setHoveredIdx(i)}
+            // onMouseLeave={() => setHoveredIdx(null)}
             return (
               <button
                 key={r.requestId}
                 type="button"
+                class="row-hover"
                 onClick={() => onRowClick(r)}
-                onMouseEnter={() => setHoveredIdx(i)}
-                onMouseLeave={() => setHoveredIdx(null)}
                 style={{
                   display: 'grid',
                   gridTemplateColumns: '90px 1fr 150px 88px 72px',
                   padding: 'var(--space-2) var(--space-4)',
+                  border: 'none',
                   borderBottom: i < shown.length - 1 ? '1px solid var(--border-subtle)' : 'none',
                   alignItems: 'center',
                   cursor: 'pointer',
                   width: '100%',
                   textAlign: 'left',
-                  border: 'none',
-                  background: isHovered
-                    ? 'var(--bg-elevated)'
-                    : r.status === 'failed'
-                      ? 'rgba(255,77,79,0.035)'
-                      : 'transparent',
+                  background: r.status === 'failed' ? 'rgba(255,77,79,0.035)' : 'transparent',
                   transition: 'background 80ms',
                   fontFamily: 'inherit',
                 }}
@@ -1051,17 +1054,29 @@ function ConsoleLog({
   const [page, setPage] = useState(1);
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
 
-  const filtered = filter === 'all' ? entries : entries.filter((e) => e.level === filter);
+  const filtered = useMemo(
+    () => (filter === 'all' ? entries : entries.filter((e) => e.level === filter)),
+    [entries, filter],
+  );
   const totalPages = Math.max(1, Math.ceil(filtered.length / CON_PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
   const start = (safePage - 1) * CON_PAGE_SIZE;
-  const shown = filtered
-    .slice()
-    .reverse()
-    .slice(start, start + CON_PAGE_SIZE);
+  const shown = useMemo(
+    () =>
+      filtered
+        .slice()
+        .reverse()
+        .slice(start, start + CON_PAGE_SIZE),
+    [filtered, start],
+  );
 
-  const errorCount = entries.filter((e) => e.level === 'error').length;
-  const warnCount = entries.filter((e) => e.level === 'warn').length;
+  const [errorCount, warnCount] = useMemo(
+    () => [
+      entries.filter((e) => e.level === 'error').length,
+      entries.filter((e) => e.level === 'warn').length,
+    ],
+    [entries],
+  );
 
   return (
     <Section title={`Console (${entries.length})`}>
@@ -1147,13 +1162,14 @@ function ConsoleLog({
           </div>
           {/* Table rows */}
           {shown.map((entry, i) => {
+            const key = `${entry.timestamp}-${entry.level}-${entry.message.slice(0, 32)}`;
             const ls = levelStyle(entry.level);
             const relMs = entry.timestamp - startTime;
             const relStr = relMs > 0 ? `+${(relMs / 1000).toFixed(2)}s` : '';
             const isHovered = hoveredIdx === i;
             return (
               <button
-                key={i}
+                key={entry.id ?? key}
                 type="button"
                 onClick={() => onRowClick(entry)}
                 onMouseEnter={() => setHoveredIdx(i)}
@@ -1162,12 +1178,12 @@ function ConsoleLog({
                   display: 'grid',
                   gridTemplateColumns: '68px 68px 100px 1fr',
                   padding: 'var(--space-2) var(--space-4)',
+                  border: 'none',
                   borderBottom: i < shown.length - 1 ? '1px solid var(--border-subtle)' : 'none',
                   alignItems: 'center',
                   cursor: 'pointer',
                   width: '100%',
                   textAlign: 'left',
-                  border: 'none',
                   background: isHovered
                     ? 'var(--bg-elevated)'
                     : entry.level === 'error'
