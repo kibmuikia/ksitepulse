@@ -174,11 +174,19 @@ export class IssueClassifier {
   }
 
   overallHealth(state: TabState): TabState['health'] {
-    if (state.health === 'loading') return 'loading';
+    // if (state.health === 'loading') return 'loading';
+    /* Note:
+      There is a bug worth flagging. overallHealth has this guard: `if (state.health === 'loading') return 'loading';`
+      And tabStateManager.init() always sets state.health = 'loading'. The problem: refreshBadge calls overallHealth(state), which reads state.health. If state.health is 'loading', overallHealth returns 'loading', setHealth stores 'loading', and nothing ever transitions out. The comment in refreshBadge even acknowledges the concern:
+        ts
+          // Always recompute health from current data — don't branch on stored state.health
+          // (init sets it to 'loading' which would otherwise keep it stuck there forever)
+      ...but overallHealth still branches on it. The guard was likely intended to hold the badge at loading while the page is mid-navigation, but it creates a deadlock. The fix is either removing the guard entirely in overallHealth (let the score drive everything) or having webNavigation.onCompleted explicitly set health to a non-loading seed value before refreshBadge runs. 
+      */
     const score = this.healthScore(state);
-    if (score >= 80) return 'good';
-    if (score >= 40) return 'warning';
-    return 'error';
+    if (score >= 80) return "good";
+    if (score >= 40) return "warning";
+    return "error";
   }
 }
 

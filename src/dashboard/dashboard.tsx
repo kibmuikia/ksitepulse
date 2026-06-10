@@ -121,38 +121,51 @@ function Dashboard() {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [summary, setSummary] = useState<TabSummary | null>(null);
   const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [theme, setTheme] = useState<Theme>('auto');
   const [switchOpen, setSwitchOpen] = useState(false);
-  const [titleHover, setTitleHover] = useState(false);
   const [drawer, setDrawer] = useState<DrawerState>(null);
   const switchRef = useRef<HTMLDivElement>(null);
 
-  const selectedTab = tabs.find((t) => t.id === selectedId) ?? null;
-  const otherTabs = tabs.filter((t) => t.id !== selectedId);
+  const selectedTab = useMemo(
+    () => tabs.find((t) => t.id === selectedId) ?? null,
+    [tabs, selectedId],
+  );
+  const otherTabs = useMemo(() => tabs.filter((t) => t.id !== selectedId), [tabs, selectedId]);
 
   const selectedIdRef = useRef<number | null>(null);
   const fetchRef = useRef<((id: number) => void) | null>(null);
+  // Tracks whether we have content so doFetch can decide full-load vs quiet refresh
+  const hasSummaryRef = useRef(false);
 
   function doFetch(tabId: number) {
     LOG('fetch:start', tabId);
     selectedIdRef.current = tabId;
-    setLoading(true);
-    setSummary(null);
+    if (hasSummaryRef.current) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
     chrome.runtime.sendMessage({ type: 'KSPULSE_GET_STATE', tabId }, (res: TabSummary | null) => {
       if (chrome.runtime.lastError) {
         LOG('error:', chrome.runtime.lastError.message);
         setLoading(false);
+        setRefreshing(false);
         return;
       }
       LOG('state', tabId, res ? `score=${res.score} health=${res.health}` : 'null');
+      hasSummaryRef.current = res !== null;
       setSummary(res);
       setLoading(false);
+      setRefreshing(false);
     });
   }
   fetchRef.current = doFetch;
 
   function selectTab(id: number) {
     LOG('tab:select', id);
+    hasSummaryRef.current = false;
+    setSummary(null);
     setSelectedId(id);
     doFetch(id);
   }
@@ -172,9 +185,9 @@ function Dashboard() {
     });
 
     const myBase = chrome.runtime.getURL('');
-    chrome.tabs.query({}, (allTabs) => {
+    chrome.tabs.query({ url: ['http://*/*', 'https://*/*'] }, (allTabs) => {
       const visible = allTabs
-        .filter((t) => t.id && t.url && !t.url.startsWith('chrome://') && !t.url.startsWith(myBase))
+        .filter((t) => t.id && t.url && !t.url.startsWith(myBase))
         .map((t) => ({
           id: t.id!,
           url: t.url!,
@@ -203,9 +216,6 @@ function Dashboard() {
       document.removeEventListener('mousedown', handleDocClick);
     };
   }, []);
-
-  const health = (summary?.health ?? 'loading') as Health;
-  const score = summary?.score ?? 0;
 
   return (
     <div
@@ -243,134 +253,7 @@ function Dashboard() {
         </span>
 
         {/* Site identity pill with hover tooltip */}
-        {selectedTab ? (
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 'var(--space-2)',
-              flex: 1,
-              minWidth: 0,
-              padding: '5px var(--space-3)',
-              background: 'var(--bg-surface)',
-              border: '1px solid var(--border-subtle)',
-              borderRadius: 'var(--radius-md)',
-              position: 'relative',
-              cursor: 'default',
-            }}
-            onMouseEnter={() => setTitleHover(true)}
-            onMouseLeave={() => setTitleHover(false)}
-          >
-            {selectedTab.favIconUrl && (
-              <img
-                src={selectedTab.favIconUrl}
-                alt=""
-                aria-hidden="true"
-                width={14}
-                height={14}
-                style={{ borderRadius: 2, flexShrink: 0 }}
-                onError={(e) => {
-                  (e.currentTarget as HTMLImageElement).style.display = 'none';
-                }}
-              />
-            )}
-            <span style={{ fontSize: 'var(--text-sm)', fontWeight: 600, flexShrink: 0 }}>
-              {hostname(selectedTab.url)}
-            </span>
-            {selectedTab.title && selectedTab.title !== hostname(selectedTab.url) && (
-              <>
-                <span style={{ color: 'var(--text-muted)', flexShrink: 0 }}>—</span>
-                <span
-                  style={{
-                    fontSize: 'var(--text-sm)',
-                    color: 'var(--text-secondary)',
-                    overflow: 'hidden',
-                    whiteSpace: 'nowrap',
-                    textOverflow: 'ellipsis',
-                  }}
-                >
-                  {selectedTab.title}
-                </span>
-              </>
-            )}
-
-            {/* Tooltip */}
-            {titleHover && (
-              <div
-                style={{
-                  position: 'absolute',
-                  top: 'calc(100% + 8px)',
-                  left: 0,
-                  minWidth: 300,
-                  maxWidth: 500,
-                  background: 'var(--bg-elevated)',
-                  border: '1px solid var(--border-default)',
-                  borderRadius: 'var(--radius-md)',
-                  boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
-                  padding: 'var(--space-3)',
-                  zIndex: 200,
-                  pointerEvents: 'none',
-                }}
-              >
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 'var(--space-2)',
-                    marginBottom: 'var(--space-2)',
-                  }}
-                >
-                  {selectedTab.favIconUrl && (
-                    <img
-                      src={selectedTab.favIconUrl}
-                      alt=""
-                      width={16}
-                      height={16}
-                      style={{ borderRadius: 3, flexShrink: 0 }}
-                    />
-                  )}
-                  <span
-                    style={{
-                      fontWeight: 700,
-                      fontSize: 'var(--text-sm)',
-                      color: 'var(--text-primary)',
-                    }}
-                  >
-                    {hostname(selectedTab.url)}
-                  </span>
-                </div>
-                {selectedTab.title && (
-                  <div
-                    style={{
-                      fontSize: 'var(--text-sm)',
-                      color: 'var(--text-secondary)',
-                      marginBottom: 'var(--space-2)',
-                      lineHeight: 1.5,
-                      wordBreak: 'break-word',
-                    }}
-                  >
-                    {selectedTab.title}
-                  </div>
-                )}
-                <div
-                  style={{
-                    fontSize: 'var(--text-xs)',
-                    color: 'var(--text-muted)',
-                    fontFamily: 'var(--font-mono)',
-                    wordBreak: 'break-all',
-                    lineHeight: 1.5,
-                    paddingTop: 'var(--space-1)',
-                    borderTop: '1px solid var(--border-subtle)',
-                  }}
-                >
-                  {selectedTab.url}
-                </div>
-              </div>
-            )}
-          </div>
-        ) : (
-          <div style={{ flex: 1 }} />
-        )}
+        {selectedTab ? <SiteIdentityPill tab={selectedTab} /> : <div style={{ flex: 1 }} />}
 
         {/* Right controls */}
         <div
@@ -513,13 +396,28 @@ function Dashboard() {
         ) : !summary ? (
           <Placeholder text="No data yet — navigate to a page in this tab." />
         ) : (
-          <Content
-            summary={summary}
-            health={health}
-            score={score}
-            onRequestClick={(r) => setDrawer({ kind: 'request', data: r })}
-            onConsoleClick={(e, t) => setDrawer({ kind: 'console', data: e, startTime: t })}
-          />
+          <div style={{ position: 'relative' }}>
+            {refreshing && (
+              <div
+                style={{
+                  position: 'absolute',
+                  top: -24,
+                  left: 0,
+                  right: 0,
+                  height: 2,
+                  background: 'var(--health-good)',
+                  opacity: 0.5,
+                  animation: 'ksp-ring-pulse 1.2s ease-in-out infinite',
+                  zIndex: 10,
+                }}
+              />
+            )}
+            <Content
+              summary={summary}
+              onRequestClick={(r) => setDrawer({ kind: 'request', data: r })}
+              onConsoleClick={(e, t) => setDrawer({ kind: 'console', data: e, startTime: t })}
+            />
+          </div>
         )}
       </main>
 
@@ -529,21 +427,145 @@ function Dashboard() {
   );
 }
 
+// ── Site identity pill ─────────────────────────────────────────────
+
+function SiteIdentityPill({ tab }: { tab: CTab }) {
+  const [hover, setHover] = useState(false);
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 'var(--space-2)',
+        flex: 1,
+        minWidth: 0,
+        padding: '5px var(--space-3)',
+        background: 'var(--bg-surface)',
+        border: '1px solid var(--border-subtle)',
+        borderRadius: 'var(--radius-md)',
+        position: 'relative',
+        cursor: 'default',
+      }}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+    >
+      {tab.favIconUrl && (
+        <img
+          src={tab.favIconUrl}
+          alt=""
+          aria-hidden="true"
+          width={14}
+          height={14}
+          style={{ borderRadius: 2, flexShrink: 0 }}
+          onError={(e) => {
+            (e.currentTarget as HTMLImageElement).style.display = 'none';
+          }}
+        />
+      )}
+      <span style={{ fontSize: 'var(--text-sm)', fontWeight: 600, flexShrink: 0 }}>
+        {hostname(tab.url)}
+      </span>
+      {tab.title && tab.title !== hostname(tab.url) && (
+        <>
+          <span style={{ color: 'var(--text-muted)', flexShrink: 0 }}>—</span>
+          <span
+            style={{
+              fontSize: 'var(--text-sm)',
+              color: 'var(--text-secondary)',
+              overflow: 'hidden',
+              whiteSpace: 'nowrap',
+              textOverflow: 'ellipsis',
+            }}
+          >
+            {tab.title}
+          </span>
+        </>
+      )}
+      {hover && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 'calc(100% + 8px)',
+            left: 0,
+            minWidth: 300,
+            maxWidth: 500,
+            background: 'var(--bg-elevated)',
+            border: '1px solid var(--border-default)',
+            borderRadius: 'var(--radius-md)',
+            boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
+            padding: 'var(--space-3)',
+            zIndex: 200,
+            pointerEvents: 'none',
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 'var(--space-2)',
+              marginBottom: 'var(--space-2)',
+            }}
+          >
+            {tab.favIconUrl && (
+              <img
+                src={tab.favIconUrl}
+                alt=""
+                width={16}
+                height={16}
+                style={{ borderRadius: 3, flexShrink: 0 }}
+              />
+            )}
+            <span
+              style={{ fontWeight: 700, fontSize: 'var(--text-sm)', color: 'var(--text-primary)' }}
+            >
+              {hostname(tab.url)}
+            </span>
+          </div>
+          {tab.title && (
+            <div
+              style={{
+                fontSize: 'var(--text-sm)',
+                color: 'var(--text-secondary)',
+                marginBottom: 'var(--space-2)',
+                lineHeight: 1.5,
+                wordBreak: 'break-word',
+              }}
+            >
+              {tab.title}
+            </div>
+          )}
+          <div
+            style={{
+              fontSize: 'var(--text-xs)',
+              color: 'var(--text-muted)',
+              fontFamily: 'var(--font-mono)',
+              wordBreak: 'break-all',
+              lineHeight: 1.5,
+              paddingTop: 'var(--space-1)',
+              borderTop: '1px solid var(--border-subtle)',
+            }}
+          >
+            {tab.url}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main content ───────────────────────────────────────────────────
 
 function Content({
   summary,
-  health,
-  score,
   onRequestClick,
   onConsoleClick,
 }: {
   summary: TabSummary;
-  health: Health;
-  score: number;
   onRequestClick: (r: RequestRecord) => void;
   onConsoleClick: (e: ConsoleEntry, startTime: number) => void;
 }) {
+  const health = (summary.health ?? 'loading') as Health;
+  const score = summary.score ?? 0;
   const issues = summary.issues ?? [];
   const vitals = Object.entries(summary.vitals);
   const failedReqs = useMemo(
@@ -686,13 +708,11 @@ function Content({
 
       <RequestsTable requests={summary.requests} onRowClick={onRequestClick} />
 
-      {summary.console.length > 0 && (
-        <ConsoleLog
-          entries={summary.console}
-          startTime={summary.startTime}
-          onRowClick={(e) => onConsoleClick(e, summary.startTime)}
-        />
-      )}
+      <ConsoleLog
+        entries={summary.console}
+        startTime={summary.startTime}
+        onRowClick={(e) => onConsoleClick(e, summary.startTime)}
+      />
     </div>
   );
 }
@@ -1052,7 +1072,6 @@ function ConsoleLog({
 }: { entries: ConsoleEntry[]; startTime: number; onRowClick: (e: ConsoleEntry) => void }) {
   const [filter, setFilter] = useState<'all' | 'error' | 'warn'>('all');
   const [page, setPage] = useState(1);
-  const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
 
   const filtered = useMemo(
     () => (filter === 'all' ? entries : entries.filter((e) => e.level === filter)),
@@ -1079,47 +1098,49 @@ function ConsoleLog({
   );
 
   return (
-    <Section title={`Console (${entries.length})`}>
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          marginBottom: 'var(--space-3)',
-        }}
-      >
-        <div style={{ display: 'flex', gap: 'var(--space-1)' }}>
-          {(['all', 'error', 'warn'] as const).map((f) => (
-            <FilterChip
-              key={f}
-              label={
-                f === 'all'
-                  ? `All (${entries.length})`
-                  : f === 'error'
-                    ? `Errors (${errorCount})`
-                    : `Warns (${warnCount})`
-              }
-              active={filter === f}
-              onClick={() => {
-                setFilter(f);
-                setPage(1);
-              }}
-              color={
-                f === 'error'
-                  ? 'var(--health-error)'
-                  : f === 'warn'
-                    ? 'var(--health-warning)'
-                    : undefined
-              }
-            />
-          ))}
+    <Section title={entries.length === 0 ? 'Console' : `Console (${entries.length})`}>
+      {entries.length > 0 && (
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            marginBottom: 'var(--space-3)',
+          }}
+        >
+          <div style={{ display: 'flex', gap: 'var(--space-1)' }}>
+            {(['all', 'error', 'warn'] as const).map((f) => (
+              <FilterChip
+                key={f}
+                label={
+                  f === 'all'
+                    ? `All (${entries.length})`
+                    : f === 'error'
+                      ? `Errors (${errorCount})`
+                      : `Warns (${warnCount})`
+                }
+                active={filter === f}
+                onClick={() => {
+                  setFilter(f);
+                  setPage(1);
+                }}
+                color={
+                  f === 'error'
+                    ? 'var(--health-error)'
+                    : f === 'warn'
+                      ? 'var(--health-warning)'
+                      : undefined
+                }
+              />
+            ))}
+          </div>
+          {filtered.length > CON_PAGE_SIZE && (
+            <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
+              {start + 1}–{Math.min(start + CON_PAGE_SIZE, filtered.length)} of {filtered.length}
+            </span>
+          )}
         </div>
-        {filtered.length > CON_PAGE_SIZE && (
-          <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
-            {start + 1}–{Math.min(start + CON_PAGE_SIZE, filtered.length)} of {filtered.length}
-          </span>
-        )}
-      </div>
+      )}
 
       {shown.length === 0 ? (
         <div
@@ -1130,7 +1151,7 @@ function ConsoleLog({
             textAlign: 'center',
           }}
         >
-          No matching entries.
+          {entries.length === 0 ? 'No console output captured yet.' : 'No matching entries.'}
         </div>
       ) : (
         <div
@@ -1162,18 +1183,15 @@ function ConsoleLog({
           </div>
           {/* Table rows */}
           {shown.map((entry, i) => {
-            const key = `${entry.timestamp}-${entry.level}-${entry.message.slice(0, 32)}`;
             const ls = levelStyle(entry.level);
             const relMs = entry.timestamp - startTime;
             const relStr = relMs > 0 ? `+${(relMs / 1000).toFixed(2)}s` : '';
-            const isHovered = hoveredIdx === i;
             return (
               <button
-                key={entry.id ?? key}
+                key={entry.id}
                 type="button"
+                class="row-hover"
                 onClick={() => onRowClick(entry)}
-                onMouseEnter={() => setHoveredIdx(i)}
-                onMouseLeave={() => setHoveredIdx(null)}
                 style={{
                   display: 'grid',
                   gridTemplateColumns: '68px 68px 100px 1fr',
@@ -1184,9 +1202,8 @@ function ConsoleLog({
                   cursor: 'pointer',
                   width: '100%',
                   textAlign: 'left',
-                  background: isHovered
-                    ? 'var(--bg-elevated)'
-                    : entry.level === 'error'
+                  background:
+                    entry.level === 'error'
                       ? 'rgba(255,77,79,0.035)'
                       : entry.level === 'warn'
                         ? 'rgba(245,166,35,0.03)'

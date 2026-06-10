@@ -13,17 +13,18 @@ export function HealthRing({ score, health }: Props) {
   const offset = CIRCUMFERENCE * (1 - fill);
   const color = `var(--health-${health})`;
   const label = health === 'loading' ? '…' : String(score);
+  const isLoading = health === 'loading' && score === 0;
 
   return (
     <svg
       width="88"
       height="88"
       viewBox="0 0 88 88"
-      aria-label={`Health score ${score}`}
+      aria-label={isLoading ? 'Analyzing page health…' : `Health score ${score}`}
       role="img"
       style={{ flexShrink: 0 }}
     >
-      {/* Track */}
+      {/* Track — pulses while loading */}
       <circle
         cx="44"
         cy="44"
@@ -31,6 +32,7 @@ export function HealthRing({ score, health }: Props) {
         fill="none"
         stroke={color}
         stroke-width="7"
+        class={isLoading ? 'ksp-ring-loading' : undefined}
         opacity="0.12"
       />
       {/* Score arc */}
@@ -60,21 +62,19 @@ export function HealthRing({ score, health }: Props) {
       >
         {label}
       </text>
-      {/* Health label */}
-      {health !== 'loading' && (
-        <text
-          x="44"
-          y="58"
-          dominant-baseline="middle"
-          text-anchor="middle"
-          fill={color}
-          font-size="10"
-          font-family="var(--font-ui)"
-          opacity="0.7"
-        >
-          {health}
-        </text>
-      )}
+      {/* Health / analyzing label */}
+      <text
+        x="44"
+        y="58"
+        dominant-baseline="middle"
+        text-anchor="middle"
+        fill={color}
+        font-size="10"
+        font-family="var(--font-ui)"
+        opacity="0.7"
+      >
+        {isLoading ? 'analyzing' : health}
+      </text>
     </svg>
   );
 }

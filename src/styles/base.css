@@ -138,3 +138,28 @@ button:focus-visible {
 .fade-in {
   animation: fade-in var(--dur-slow) var(--ease-out) both;
 }
+
+@keyframes ksp-ring-pulse {
+  0%,
+  100% {
+    opacity: 0.12;
+  }
+  50% {
+    opacity: 0.32;
+  }
+}
+
+@keyframes ksp-tooltip-in {
+  from {
+    opacity: 0;
+    transform: translateY(-2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.ksp-ring-loading {
+  animation: ksp-ring-pulse 1.6s ease-in-out infinite;
+}

@@ -1,4 +1,5 @@
 import { applyTheme, getUserConfig } from '@config/userConfig';
+import { Tooltip } from '@shared/components/Tooltip';
 import type { Mode, TabSummary, Theme } from '@shared/types';
 import { render } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
@@ -9,6 +10,15 @@ import { ModeToggle } from './components/ModeToggle';
 import { ThemeToggle } from './components/ThemeToggle';
 import '../styles/tokens.css';
 import '../styles/base.css';
+
+const VITAL_TIPS: Record<string, string> = {
+  LCP: 'Largest Contentful Paint — how long until the biggest visible element loads. Good: <2.5s, Poor: >4s.',
+  FCP: 'First Contentful Paint — time until first text or image appears. Good: <1.8s, Poor: >3s.',
+  INP: 'Interaction to Next Paint — responsiveness to clicks/taps. Good: <200ms, Poor: >500ms.',
+  FID: 'First Input Delay — delay before the browser responds to the first interaction. Good: <100ms.',
+  CLS: 'Cumulative Layout Shift — visual stability; measures unexpected layout shifts. Good: <0.1.',
+  TTFB: 'Time to First Byte — server response speed. Good: <800ms, Poor: >1800ms.',
+};
 
 const LOG = (...args: unknown[]) => console.log('[ksp:popup]', ...args);
 
@@ -49,6 +59,7 @@ function Popup() {
                 ? `health=${res.health} score=${res.score} requests=${res.requests?.length}`
                 : 'null',
             );
+            LOG('got response:', res ? res : 'null');
             setSummary(res);
             setLoading(false);
           },
@@ -282,56 +293,74 @@ function DeveloperView({ summary }: { summary: TabSummary | null }) {
           style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 'var(--space-2)' }}
         >
           {vitals.map(([name, v]) => (
-            <div
+            <Tooltip
               key={name}
-              style={{
-                background: 'var(--bg-surface)',
-                border: '1px solid var(--border-subtle)',
-                borderRadius: 'var(--radius-sm)',
-                padding: 'var(--space-2)',
-                textAlign: 'center',
-              }}
+              content={VITAL_TIPS[name] ?? `${name} — ${v.rating}`}
+              position="bottom"
             >
               <div
-                style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginBottom: 2 }}
-              >
-                {name}
-              </div>
-              <div
                 style={{
-                  fontSize: 'var(--text-sm)',
-                  fontWeight: 600,
-                  color: `var(--health-${ratingToHealth(v.rating)})`,
+                  background: 'var(--bg-surface)',
+                  border: '1px solid var(--border-subtle)',
+                  borderRadius: 'var(--radius-sm)',
+                  padding: 'var(--space-2)',
+                  textAlign: 'center',
+                  width: '100%',
+                  cursor: 'default',
                 }}
               >
-                {formatVital(name, v.value)}
+                <div
+                  style={{
+                    fontSize: 'var(--text-xs)',
+                    color: 'var(--text-muted)',
+                    marginBottom: 2,
+                  }}
+                >
+                  {name}
+                </div>
+                <div
+                  style={{
+                    fontSize: 'var(--text-sm)',
+                    fontWeight: 600,
+                    color: `var(--health-${ratingToHealth(v.rating)})`,
+                  }}
+                >
+                  {formatVital(name, v.value)}
+                </div>
               </div>
-            </div>
+            </Tooltip>
           ))}
         </div>
       )}
 
       {/* Request summary */}
-      <div
-        style={{
-          background: 'var(--bg-surface)',
-          border: '1px solid var(--border-subtle)',
-          borderRadius: 'var(--radius-sm)',
-          padding: 'var(--space-2)',
-        }}
+      <Tooltip
+        content="All network requests captured for this page. Failed = non-2xx HTTP responses or network errors."
+        position="top"
       >
-        <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginBottom: 4 }}>
-          REQUESTS
+        <div
+          style={{
+            background: 'var(--bg-surface)',
+            border: '1px solid var(--border-subtle)',
+            borderRadius: 'var(--radius-sm)',
+            padding: 'var(--space-2)',
+            width: '100%',
+            cursor: 'default',
+          }}
+        >
+          <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginBottom: 4 }}>
+            REQUESTS
+          </div>
+          <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-primary)' }}>
+            {summary.requests.length} total
+            {summary.requests.filter((r) => r.status === 'failed').length > 0 && (
+              <span style={{ color: 'var(--health-error)', marginLeft: 6 }}>
+                · {summary.requests.filter((r) => r.status === 'failed').length} failed
+              </span>
+            )}
+          </div>
         </div>
-        <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-primary)' }}>
-          {summary.requests.length} total
-          {summary.requests.filter((r) => r.status === 'failed').length > 0 && (
-            <span style={{ color: 'var(--health-error)', marginLeft: 6 }}>
-              · {summary.requests.filter((r) => r.status === 'failed').length} failed
-            </span>
-          )}
-        </div>
-      </div>
+      </Tooltip>
 
       {/* Console preview */}
       {recentConsole.length > 0 && (
@@ -344,29 +373,32 @@ function DeveloperView({ summary }: { summary: TabSummary | null }) {
           }}
         >
           <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginBottom: 4 }}>
-            CONSOLE
+            CONSOLE (last {recentConsole.length})
           </div>
           {recentConsole.map((entry, i) => (
-            <div
-              key={i}
-              style={{
-                display: 'flex',
-                gap: 'var(--space-1)',
-                fontSize: 'var(--text-xs)',
-                fontFamily: 'var(--font-mono)',
-                color: `var(--console-${entry.level === 'warn' ? 'warn' : entry.level === 'error' ? 'error' : 'log'})`,
-                lineHeight: 1.4,
-                overflow: 'hidden',
-                whiteSpace: 'nowrap',
-                textOverflow: 'ellipsis',
-                opacity: i > 0 ? 0.7 - i * 0.1 : 1,
-              }}
-            >
-              <span style={{ flexShrink: 0 }}>
-                {entry.level === 'error' ? '✕' : entry.level === 'warn' ? '!' : '›'}
-              </span>
-              <span class="truncate">{entry.message}</span>
-            </div>
+            <Tooltip key={entry.id ?? i} content={entry.message} position="top">
+              <div
+                style={{
+                  display: 'flex',
+                  gap: 'var(--space-1)',
+                  fontSize: 'var(--text-xs)',
+                  fontFamily: 'var(--font-mono)',
+                  color: `var(--console-${entry.level === 'warn' ? 'warn' : entry.level === 'error' ? 'error' : 'log'})`,
+                  lineHeight: 1.4,
+                  overflow: 'hidden',
+                  whiteSpace: 'nowrap',
+                  textOverflow: 'ellipsis',
+                  opacity: i > 0 ? 0.7 - i * 0.1 : 1,
+                  width: '100%',
+                  cursor: 'default',
+                }}
+              >
+                <span style={{ flexShrink: 0 }}>
+                  {entry.level === 'error' ? '✕' : entry.level === 'warn' ? '!' : '›'}
+                </span>
+                <span class="truncate">{entry.message}</span>
+              </div>
+            </Tooltip>
           ))}
         </div>
       )}

@@ -1,6 +1,7 @@
 import type {
   BatchMessage,
   ConsoleMessage,
+  Health,
   KspMessage,
   LongTaskMessage,
   NavMessage,
@@ -34,7 +35,7 @@ chrome.webNavigation.onBeforeNavigate.addListener(async ({ tabId, frameId, url }
 chrome.webNavigation.onCompleted.addListener(async ({ tabId, frameId }) => {
   if (frameId !== 0) return;
   LOG('nav:complete', tabId);
-  await refreshBadge(tabId);
+  await refreshBadge(tabId, 'nav:complete');
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
@@ -65,7 +66,7 @@ chrome.webRequest.onCompleted.addListener(
       fromCache,
       duration: start != null ? timeStamp - start : null,
     });
-    await refreshBadge(tabId);
+    await refreshBadge(tabId, 'webRequest:completed');
   },
   { urls: ['<all_urls>'] },
 );
@@ -75,7 +76,7 @@ chrome.webRequest.onErrorOccurred.addListener(
     if (tabId < 0) return;
     pendingRequests.delete(requestId);
     await tabStateManager.failRequest(tabId, requestId, error);
-    await refreshBadge(tabId);
+    await refreshBadge(tabId, 'webRequest:error');
   },
   { urls: ['<all_urls>'] },
 );
@@ -100,7 +101,7 @@ chrome.runtime.onMessage.addListener((msg: KspMessage, sender, sendResponse) => 
       for (const item of items) {
         await handleContentMessage(senderTabId, item);
       }
-      await refreshBadge(senderTabId);
+      await refreshBadge(senderTabId, 'batch');
       notifyDashboards(senderTabId);
       return;
     }
@@ -154,6 +155,8 @@ chrome.runtime.onMessage.addListener((msg: KspMessage, sender, sendResponse) => 
         'vitals:',
         Object.keys(state.vitals),
       );
+      // Keep badge in sync for tabs that were open before the extension loaded
+      updateBadge(tabId, summary.health as Health);
       sendResponse(summary);
       return;
     }
@@ -241,13 +244,16 @@ async function handleContentMessage(tabId: number, msg: KspMessage): Promise<voi
   }
 }
 
-async function refreshBadge(tabId: number): Promise<void> {
+async function refreshBadge(tabId: number, from: string): Promise<void> {
   const state = await tabStateManager.get(tabId);
   if (!state) return;
   // Always recompute health from current data — don't branch on stored state.health
   // (init sets it to 'loading' which would otherwise keep it stuck there forever)
   const health = classifier.overallHealth(state);
-  LOG('refreshBadge', tabId, health);
+  LOG(`refreshBadge[ ${from} ]: `, {
+    tabId: tabId,
+    health: health,
+  });
   await tabStateManager.setHealth(tabId, health);
   updateBadge(tabId, health);
 }
