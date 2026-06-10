@@ -184,9 +184,9 @@ export class IssueClassifier {
       ...but overallHealth still branches on it. The guard was likely intended to hold the badge at loading while the page is mid-navigation, but it creates a deadlock. The fix is either removing the guard entirely in overallHealth (let the score drive everything) or having webNavigation.onCompleted explicitly set health to a non-loading seed value before refreshBadge runs. 
       */
     const score = this.healthScore(state);
-    if (score >= 80) return "good";
-    if (score >= 40) return "warning";
-    return "error";
+    if (score >= 80) return 'good';
+    if (score >= 40) return 'warning';
+    return 'error';
   }
 }
 

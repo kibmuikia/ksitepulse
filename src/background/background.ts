@@ -90,23 +90,9 @@ chrome.runtime.onMessage.addListener((msg: KspMessage, sender, sendResponse) => 
 
   LOG('msg:recv', msg.type, 'senderTab:', senderTabId, 'payloadTab:', payloadTabId);
 
-  (async () => {
-    if (msg.type === 'KSPULSE_BATCH') {
-      if (!senderTabId) {
-        LOG('msg:batch — missing senderTabId, dropping');
-        return;
-      }
-      const { items } = msg as unknown as BatchMessage;
-      LOG('msg:batch', senderTabId, items.length, 'items');
-      for (const item of items) {
-        await handleContentMessage(senderTabId, item);
-      }
-      await refreshBadge(senderTabId, 'batch');
-      notifyDashboards(senderTabId);
-      return;
-    }
-
-    if (msg.type === 'KSPULSE_GET_STATE') {
+  if (msg.type === 'KSPULSE_GET_STATE') {
+    // Async with sendResponse — must return true to keep channel open.
+    (async () => {
       const tabId = payloadTabId ?? senderTabId;
       if (!tabId) {
         LOG('msg:get_state — no tabId resolved, sending null');
@@ -158,6 +144,24 @@ chrome.runtime.onMessage.addListener((msg: KspMessage, sender, sendResponse) => 
       // Keep badge in sync for tabs that were open before the extension loaded
       updateBadge(tabId, summary.health as Health);
       sendResponse(summary);
+    })();
+    return true; // keep channel open for async sendResponse
+  }
+
+  // Fire-and-forget messages — no sendResponse needed, channel can close immediately.
+  (async () => {
+    if (msg.type === 'KSPULSE_BATCH') {
+      if (!senderTabId) {
+        LOG('msg:batch — missing senderTabId, dropping');
+        return;
+      }
+      const { items } = msg as unknown as BatchMessage;
+      LOG('msg:batch', senderTabId, items.length, 'items');
+      for (const item of items) {
+        await handleContentMessage(senderTabId, item);
+      }
+      await refreshBadge(senderTabId, 'batch');
+      notifyDashboards(senderTabId);
       return;
     }
 
@@ -174,11 +178,9 @@ chrome.runtime.onMessage.addListener((msg: KspMessage, sender, sendResponse) => 
         filename: `ksitepulse-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.har`,
         saveAs: false,
       });
-      return;
     }
   })();
-
-  return true; // keep channel open for async sendResponse
+  return false;
 });
 
 // ── Dashboard port connections (live push) ────────────────────────

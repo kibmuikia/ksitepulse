@@ -1,5 +1,6 @@
 import { applyTheme, getUserConfig } from '@config/userConfig';
-
+import { Tooltip } from '@shared/components/Tooltip';
+import { VITAL_TIPS } from '@shared/constants';
 import type { ConsoleEntry, Health, Issue, RequestRecord, TabSummary, Theme } from '@shared/types';
 import { render } from 'preact';
 import type { ComponentChildren } from 'preact';
@@ -664,12 +665,13 @@ function Content({
             }}
           >
             {vitals.map(([name, v]) => (
-              <Stat
-                key={name}
-                label={name}
-                value={fmtVital(name, v.value)}
-                color={`var(--health-${ratingToHealth(v.rating)})`}
-              />
+              <Tooltip key={name} content={VITAL_TIPS[name] ?? name} position="bottom">
+                <Stat
+                  label={name}
+                  value={fmtVital(name, v.value)}
+                  color={`var(--health-${ratingToHealth(v.rating)})`}
+                />
+              </Tooltip>
             ))}
           </div>
         </Section>

@@ -26,7 +26,7 @@ export function Tooltip({ content, position = 'bottom', children, disabled }: To
 
   return (
     <span
-      style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}
+      style={{ position: 'relative', display: 'block', width: '100%' }}
       onMouseEnter={() => setVisible(true)}
       onMouseLeave={() => {
         setVisible(false);
@@ -45,7 +45,7 @@ export function Tooltip({ content, position = 'bottom', children, disabled }: To
           position: 'absolute',
           ...POS[position],
           zIndex: 9999,
-          maxWidth: 240,
+          maxWidth: 260,
           padding: '6px 10px',
           background: 'var(--bg-elevated)',
           border: '1px solid var(--border-subtle)',
