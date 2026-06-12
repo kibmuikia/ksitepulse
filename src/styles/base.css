@@ -504,3 +504,149 @@ button:focus-visible {
   color: var(--text-muted);
   font-size: var(--text-sm);
 }
+
+/* ── Glass card ───────────────────────────────────────────────────── */
+
+.glass-card {
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  backdrop-filter: blur(12px);
+  box-shadow: var(--glass-shadow);
+}
+
+/* ── Hover lift ───────────────────────────────────────────────────── */
+
+.hover-lift {
+  transition: transform var(--dur) var(--ease-out), box-shadow var(--dur) var(--ease-out);
+}
+
+.hover-lift:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+/* ── Stat pill ────────────────────────────────────────────────────── */
+
+.stat-pill {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: var(--space-3);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+
+.stat-pill__label {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.stat-pill__value {
+  font-size: var(--text-lg);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Vital gauge ──────────────────────────────────────────────────── */
+
+.vital-gauge {
+  height: 3px;
+  border-radius: 2px;
+  background: var(--border-subtle);
+  overflow: hidden;
+}
+
+.vital-gauge__fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width var(--dur-slow) var(--ease-out);
+}
+
+/* ── Console bar ──────────────────────────────────────────────────── */
+
+.console-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 200;
+  background: var(--bg-elevated);
+  border-top: 1px solid var(--border-default);
+  display: flex;
+  flex-direction: column;
+  transition: height 220ms var(--ease-out);
+  overflow: hidden;
+}
+
+.console-bar--collapsed {
+  height: var(--console-bar-collapsed);
+}
+
+.console-bar--expanded {
+  height: var(--console-bar-expanded);
+}
+
+.console-bar__handle {
+  height: 36px;
+  min-height: 36px;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-4);
+  cursor: pointer;
+  flex-shrink: 0;
+  border: none;
+  border-bottom: 1px solid var(--border-subtle);
+  border-radius: 0;
+  background: none;
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+  text-align: left;
+  user-select: none;
+}
+
+.console-bar__handle:hover {
+  background: var(--bg-hover);
+}
+
+.console-bar__body {
+  flex: 1;
+  overflow: hidden auto;
+}
+
+/* ── Health ring glow ─────────────────────────────────────────────── */
+
+@keyframes ksp-ring-glow {
+  0%,
+  100% {
+    filter: drop-shadow(0 0 4px currentColor);
+  }
+  50% {
+    filter: drop-shadow(0 0 10px currentColor);
+  }
+}
+
+.ksp-ring-glow {
+  animation: ksp-ring-glow 1.8s ease-in-out infinite;
+}
+
+/* ── Bento grid ───────────────────────────────────────────────────── */
+
+.bento-card {
+  padding: var(--space-4);
+}
+
+.bento-card__title {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-bottom: var(--space-3);
+}

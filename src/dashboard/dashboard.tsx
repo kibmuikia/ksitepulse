@@ -1,5 +1,10 @@
 import { applyTheme, getUserConfig } from '@config/userConfig';
+import { FilterChips } from '@shared/components/FilterChips';
+import { MetaBadge } from '@shared/components/MetaBadge';
+import { PaginationBar } from '@shared/components/PaginationBar';
+import { StatPill } from '@shared/components/StatPill';
 import { Tooltip } from '@shared/components/Tooltip';
+import { VitalGauge } from '@shared/components/VitalGauge';
 import { VITAL_TIPS } from '@shared/constants';
 import type { ConsoleEntry, Health, Issue, RequestRecord, TabSummary, Theme } from '@shared/types';
 import { hostname } from '@shared/urlUtils';
@@ -7,23 +12,16 @@ import { render } from 'preact';
 import type { ComponentChildren } from 'preact';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { HealthRing } from '../popup/components/HealthRing';
+import { ConsoleBar } from './components/ConsoleBar';
 import { EmptyTabState } from './components/EmptyTabState';
 import { TabDrawer, fetchTabHealth } from './components/TabDrawer';
-import type { TabHealthEntry } from './components/TabDrawer';
+import type { CTabInfo, TabHealthEntry } from './components/TabDrawer';
 import '../styles/tokens.css';
 import '../styles/base.css';
 
 const LOG = (...args: unknown[]) => console.log('[ksp:dash]', ...args);
 
 const REQ_PAGE_SIZE = 20;
-const CON_PAGE_SIZE = 50;
-
-interface CTab {
-  id: number;
-  url: string;
-  title: string;
-  favIconUrl?: string;
-}
 
 type DrawerState =
   | { kind: 'request'; data: RequestRecord }
@@ -40,16 +38,6 @@ const METHOD_STYLES: Record<string, { bg: string; color: string }> = {
   DELETE: { bg: 'rgba(255,77,79,0.15)', color: 'var(--health-error)' },
 };
 const DEFAULT_METHOD_STYLE = { bg: 'rgba(74,74,98,0.2)', color: 'var(--text-muted)' };
-
-// ── Console level badge styles ─────────────────────────────────────
-
-const LEVEL_STYLES: Record<string, { bg: string; color: string }> = {
-  error: { bg: 'rgba(255,77,79,0.15)', color: 'var(--console-error, var(--health-error))' },
-  warn: { bg: 'rgba(245,166,35,0.15)', color: 'var(--console-warn, var(--health-warning))' },
-  info: { bg: 'rgba(96,165,250,0.15)', color: 'var(--console-info, #60a5fa)' },
-  log: { bg: 'rgba(74,74,98,0.2)', color: 'var(--console-log, var(--text-secondary))' },
-};
-const DEFAULT_LEVEL_STYLE = { bg: 'rgba(74,74,98,0.2)', color: 'var(--text-muted)' };
 
 // ── HTTP status display ────────────────────────────────────────────
 
@@ -89,10 +77,6 @@ function methodStyle(method?: string) {
   return METHOD_STYLES[(method ?? '').toUpperCase()] ?? DEFAULT_METHOD_STYLE;
 }
 
-function levelStyle(level: string) {
-  return LEVEL_STYLES[level.toLowerCase()] ?? DEFAULT_LEVEL_STYLE;
-}
-
 function reqDotColor(r: RequestRecord): string {
   if (r.status === 'failed') return 'var(--health-error)';
   if (!r.statusCode) return 'var(--text-muted)';
@@ -114,7 +98,7 @@ function reqStatusLabel(r: RequestRecord): string {
 // ── Dashboard ──────────────────────────────────────────────────────
 
 function Dashboard() {
-  const [tabs, setTabs] = useState<CTab[]>([]);
+  const [tabs, setTabs] = useState<CTabInfo[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [summary, setSummary] = useState<TabSummary | null>(null);
   const [loading, setLoading] = useState(false);
@@ -198,6 +182,15 @@ function Dashboard() {
           url: t.url!,
           title: t.title || t.url!,
           favIconUrl: t.favIconUrl,
+          status: t.status as 'loading' | 'complete' | undefined,
+          active: t.active,
+          pinned: t.pinned,
+          incognito: t.incognito,
+          audible: t.audible,
+          muted: t.mutedInfo?.muted,
+          discarded: t.discarded,
+          index: t.index,
+          windowId: t.windowId,
         }));
       LOG('tabs:loaded', visible.length);
       setTabs(visible);
@@ -257,10 +250,8 @@ function Dashboard() {
           ksite<span style={{ color: 'var(--health-good)' }}>pulse</span>
         </span>
 
-        {/* Site identity pill with hover tooltip */}
         {selectedTab ? <SiteIdentityPill tab={selectedTab} /> : <div style={{ flex: 1 }} />}
 
-        {/* Right controls */}
         <div
           style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexShrink: 0 }}
         >
@@ -307,7 +298,30 @@ function Dashboard() {
       </header>
 
       {/* ── Main ───────────────────────────────────────────────────── */}
-      <main style={{ flex: 1, overflow: 'hidden auto', padding: 'var(--space-6)' }}>
+      <main
+        style={{
+          flex: 1,
+          overflow: 'hidden auto',
+          padding: 'var(--space-6)',
+          paddingBottom: 'calc(var(--console-bar-collapsed) + var(--space-4))',
+          position: 'relative',
+        }}
+      >
+        {refreshing && (
+          <div
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              height: 2,
+              background: 'var(--health-good)',
+              opacity: 0.5,
+              animation: 'ksp-ring-pulse 1.2s ease-in-out infinite',
+              zIndex: 10,
+            }}
+          />
+        )}
         {!selectedId ? (
           <Placeholder text="No tab selected" />
         ) : loading ? (
@@ -315,30 +329,21 @@ function Dashboard() {
         ) : !summary ? (
           <EmptyTabState reloading={reloading} onReload={handleReload} />
         ) : (
-          <div style={{ position: 'relative' }}>
-            {refreshing && (
-              <div
-                style={{
-                  position: 'absolute',
-                  top: -24,
-                  left: 0,
-                  right: 0,
-                  height: 2,
-                  background: 'var(--health-good)',
-                  opacity: 0.5,
-                  animation: 'ksp-ring-pulse 1.2s ease-in-out infinite',
-                  zIndex: 10,
-                }}
-              />
-            )}
-            <Content
-              summary={summary}
-              onRequestClick={(r) => setDrawer({ kind: 'request', data: r })}
-              onConsoleClick={(e, t) => setDrawer({ kind: 'console', data: e, startTime: t })}
-            />
-          </div>
+          <Content
+            summary={summary}
+            onRequestClick={(r) => setDrawer({ kind: 'request', data: r })}
+          />
         )}
       </main>
+
+      {/* ── Console Bar ────────────────────────────────────────────── */}
+      <ConsoleBar
+        entries={summary?.console ?? []}
+        startTime={summary?.startTime ?? 0}
+        onEntryClick={(e) =>
+          setDrawer({ kind: 'console', data: e, startTime: summary?.startTime ?? 0 })
+        }
+      />
 
       {/* ── Side Drawer ────────────────────────────────────────────── */}
       {drawer && <Drawer state={drawer} onClose={() => setDrawer(null)} />}
@@ -361,8 +366,9 @@ function Dashboard() {
 
 // ── Site identity pill ─────────────────────────────────────────────
 
-function SiteIdentityPill({ tab }: { tab: CTab }) {
+function SiteIdentityPill({ tab }: { tab: CTabInfo }) {
   const [hover, setHover] = useState(false);
+  const host = hostname(tab.url);
   return (
     <div
       style={{
@@ -394,10 +400,15 @@ function SiteIdentityPill({ tab }: { tab: CTab }) {
           }}
         />
       )}
-      <span style={{ fontSize: 'var(--text-sm)', fontWeight: 600, flexShrink: 0 }}>
-        {hostname(tab.url)}
-      </span>
-      {tab.title && tab.title !== hostname(tab.url) && (
+      <span style={{ fontSize: 'var(--text-sm)', fontWeight: 600, flexShrink: 0 }}>{host}</span>
+      {/* Meta badges inline */}
+      {tab.pinned && <MetaBadge type="pinned" />}
+      {tab.incognito && <MetaBadge type="incognito" />}
+      {tab.audible && <MetaBadge type="audible" />}
+      {tab.muted && <MetaBadge type="muted" />}
+      {tab.status === 'loading' && <MetaBadge type="loading" />}
+      {tab.discarded && <MetaBadge type="discarded" />}
+      {tab.title && tab.title !== host && (
         <>
           <span style={{ color: 'var(--text-muted)', flexShrink: 0 }}>—</span>
           <span
@@ -448,9 +459,13 @@ function SiteIdentityPill({ tab }: { tab: CTab }) {
               />
             )}
             <span
-              style={{ fontWeight: 700, fontSize: 'var(--text-sm)', color: 'var(--text-primary)' }}
+              style={{
+                fontWeight: 700,
+                fontSize: 'var(--text-sm)',
+                color: 'var(--text-primary)',
+              }}
             >
-              {hostname(tab.url)}
+              {host}
             </span>
           </div>
           {tab.title && (
@@ -479,8 +494,48 @@ function SiteIdentityPill({ tab }: { tab: CTab }) {
           >
             {tab.url}
           </div>
+          {(tab.windowId != null || tab.index != null || tab.status || tab.discarded) && (
+            <div
+              style={{
+                marginTop: 'var(--space-2)',
+                paddingTop: 'var(--space-1)',
+                borderTop: '1px solid var(--border-subtle)',
+                fontSize: 'var(--text-xs)',
+                color: 'var(--text-muted)',
+                display: 'flex',
+                gap: 'var(--space-3)',
+                flexWrap: 'wrap',
+              }}
+            >
+              {tab.windowId != null && <span>Window {tab.windowId}</span>}
+              {tab.index != null && <span>Tab #{tab.index}</span>}
+              {tab.status && <span>Status: {tab.status}</span>}
+              {tab.discarded && <span>Discarded</span>}
+            </div>
+          )}
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Bento card ─────────────────────────────────────────────────────
+
+function BentoCard({
+  title,
+  children,
+  style,
+  className,
+}: {
+  title: string;
+  children: ComponentChildren;
+  style?: Record<string, string>;
+  className?: string;
+}) {
+  return (
+    <div class={`glass-card bento-card${className ? ` ${className}` : ''}`} style={style}>
+      <div class="bento-card__title">{title}</div>
+      {children}
     </div>
   );
 }
@@ -490,11 +545,9 @@ function SiteIdentityPill({ tab }: { tab: CTab }) {
 function Content({
   summary,
   onRequestClick,
-  onConsoleClick,
 }: {
   summary: TabSummary;
   onRequestClick: (r: RequestRecord) => void;
-  onConsoleClick: (e: ConsoleEntry, startTime: number) => void;
 }) {
   const health = (summary.health ?? 'loading') as Health;
   const score = summary.score ?? 0;
@@ -509,116 +562,140 @@ function Content({
     <div
       class="fade-in"
       style={{
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 'var(--space-6)',
+        display: 'grid',
+        gridTemplateColumns: 'repeat(12, 1fr)',
+        gridTemplateAreas:
+          '"health health stats stats stats stats nav nav nav nav nav nav" ' +
+          '"vitals vitals vitals vitals issues issues issues issues issues issues issues issues" ' +
+          '"reqs reqs reqs reqs reqs reqs reqs reqs reqs reqs reqs reqs"',
+        gap: 'var(--space-4)',
         maxWidth: 960,
         margin: '0 auto',
       }}
     >
-      {/* Health + summary stats */}
-      <div style={{ display: 'flex', gap: 'var(--space-6)', alignItems: 'flex-start' }}>
+      {/* Health ring */}
+      <BentoCard
+        title="Health"
+        className="hover-lift"
+        style={{ gridArea: 'health', display: 'flex', flexDirection: 'column' }}
+      >
         <div
           style={{
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
             gap: 'var(--space-2)',
-            flexShrink: 0,
+            flex: 1,
+            justifyContent: 'center',
           }}
         >
           <HealthRing score={score} health={health} />
-          <span
-            style={{
-              fontSize: 'var(--text-xs)',
-              color: 'var(--text-muted)',
-              textTransform: 'uppercase',
-              letterSpacing: '0.06em',
-            }}
-          >
-            Health Score
-          </span>
         </div>
+      </BentoCard>
+
+      {/* Summary stats */}
+      <BentoCard title="Summary" style={{ gridArea: 'stats' }}>
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(4, 1fr)',
-            gap: 'var(--space-3)',
-            flex: 1,
+            gridTemplateColumns: 'repeat(2, 1fr)',
+            gap: 'var(--space-2)',
           }}
         >
-          <Stat label="Requests" value={String(summary.requests.length)} />
-          <Stat
+          <StatPill label="Requests" value={String(summary.requests.length)} />
+          <StatPill
             label="Failed"
             value={String(failedReqs.length)}
             color={failedReqs.length > 0 ? 'var(--health-error)' : undefined}
           />
-          <Stat
+          <StatPill
             label="Issues"
             value={String(issues.length)}
             color={issues.length > 0 ? 'var(--health-warning)' : undefined}
           />
-          <Stat
+          <StatPill
             label="Long Tasks"
             value={String(summary.longTasks.length)}
             color={summary.longTasks.length > 2 ? 'var(--health-warning)' : undefined}
           />
         </div>
-      </div>
+      </BentoCard>
 
       {/* Navigation timing */}
-      {summary.nav && (
-        <Section title="Navigation Timing">
+      <BentoCard title="Navigation Timing" style={{ gridArea: 'nav' }}>
+        {summary.nav ? (
           <div
             style={{
               display: 'grid',
               gridTemplateColumns: 'repeat(5, 1fr)',
-              gap: 'var(--space-3)',
+              gap: 'var(--space-2)',
             }}
           >
-            <Stat label="TTFB" value={fmtMs(summary.nav.ttfb)} />
-            <Stat label="DCL" value={fmtMs(summary.nav.domContentLoaded)} />
-            <Stat label="Load" value={fmtMs(summary.nav.loadComplete)} />
-            <Stat label="Protocol" value={summary.nav.protocol || '—'} />
-            <Stat label="Transfer" value={fmtBytes(summary.nav.transferSize)} />
+            <StatPill label="TTFB" value={fmtMs(summary.nav.ttfb)} />
+            <StatPill label="DCL" value={fmtMs(summary.nav.domContentLoaded)} />
+            <StatPill label="Load" value={fmtMs(summary.nav.loadComplete)} />
+            <StatPill label="Protocol" value={summary.nav.protocol || '—'} />
+            <StatPill label="Transfer" value={fmtBytes(summary.nav.transferSize)} />
           </div>
-        </Section>
-      )}
-
-      {/* Web Vitals */}
-      {vitals.length > 0 && (
-        <Section title="Web Vitals">
+        ) : (
           <div
             style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))',
-              gap: 'var(--space-3)',
+              fontSize: 'var(--text-sm)',
+              color: 'var(--text-muted)',
+              textAlign: 'center',
+              padding: 'var(--space-4) 0',
             }}
           >
+            No timing data yet
+          </div>
+        )}
+      </BentoCard>
+
+      {/* Web Vitals */}
+      <BentoCard
+        title="Web Vitals"
+        className="hover-lift"
+        style={{ gridArea: 'vitals', display: 'flex', flexDirection: 'column' }}
+      >
+        {vitals.length > 0 ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)', flex: 1 }}>
             {vitals.map(([name, v]) => (
-              <Tooltip key={name} content={VITAL_TIPS[name] ?? name} position="bottom">
-                <Stat
-                  label={name}
-                  value={fmtVital(name, v.value)}
-                  color={`var(--health-${ratingToHealth(v.rating)})`}
-                />
+              <Tooltip key={name} content={VITAL_TIPS[name] ?? name} position="top">
+                <VitalGauge name={name} value={fmtVital(name, v.value)} rating={v.rating} />
               </Tooltip>
             ))}
           </div>
-        </Section>
-      )}
+        ) : (
+          <div
+            style={{
+              fontSize: 'var(--text-sm)',
+              color: 'var(--text-muted)',
+              textAlign: 'center',
+              padding: 'var(--space-4) 0',
+            }}
+          >
+            No vitals captured yet
+          </div>
+        )}
+      </BentoCard>
 
       {/* Issues */}
-      {issues.length > 0 ? (
-        <Section title={`Issues (${issues.length})`}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+      <BentoCard title={`Issues (${issues.length})`} style={{ gridArea: 'issues' }}>
+        {issues.length > 0 ? (
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 'var(--space-2)',
+              overflow: 'hidden auto',
+              maxHeight: 260,
+            }}
+          >
             {issues.map((issue) => (
               <IssueRow key={issue.id} issue={issue} />
             ))}
           </div>
-        </Section>
-      ) : (
-        <Section title="Issues">
+        ) : (
           <div
             style={{
               display: 'flex',
@@ -636,51 +713,14 @@ function Content({
             <span style={{ color: 'var(--health-good)' }}>✓</span>
             No issues detected
           </div>
-        </Section>
-      )}
+        )}
+      </BentoCard>
 
-      <RequestsTable requests={summary.requests} onRowClick={onRequestClick} />
-
-      <ConsoleLog
-        entries={summary.console}
-        startTime={summary.startTime}
-        onRowClick={(e) => onConsoleClick(e, summary.startTime)}
-      />
+      {/* Requests — no glass, full width */}
+      <div style={{ gridArea: 'reqs' }}>
+        <RequestsTable requests={summary.requests} onRowClick={onRequestClick} />
+      </div>
     </div>
-  );
-}
-
-// ── Filter chip ────────────────────────────────────────────────────
-
-function FilterChip({
-  label,
-  active,
-  onClick,
-  color,
-}: { label: string; active: boolean; onClick: () => void; color?: string }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      style={{
-        padding: '3px 9px',
-        borderRadius: 'var(--radius-sm)',
-        border: `1px solid ${active && color ? color : active ? 'var(--border-default)' : 'var(--border-subtle)'}`,
-        background: active
-          ? color
-            ? `color-mix(in srgb, ${color} 15%, transparent)`
-            : 'var(--bg-elevated)'
-          : 'transparent',
-        fontSize: 'var(--text-xs)',
-        fontFamily: 'var(--font-mono)',
-        color: active ? (color ?? 'var(--text-primary)') : 'var(--text-muted)',
-        fontWeight: active ? 600 : 400,
-        cursor: 'pointer',
-        letterSpacing: '0.02em',
-      }}
-    >
-      {label}
-    </button>
   );
 }
 
@@ -691,15 +731,40 @@ type StatusFilter = 'ALL' | '2xx' | '3xx' | '4xx' | '5xx' | 'failed';
 
 const KNOWN_METHODS: MethodFilter[] = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
 
+const METHOD_FILTER_OPTIONS = (
+  ['ALL', 'GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OTHER'] as MethodFilter[]
+).map((m) => ({
+  label: m,
+  value: m,
+  color: m !== 'ALL' && m !== 'OTHER' ? METHOD_STYLES[m]?.color : undefined,
+}));
+
+const STATUS_FILTER_OPTIONS = (['ALL', '2xx', '3xx', '4xx', '5xx', 'failed'] as StatusFilter[]).map(
+  (s) => ({
+    label: s === 'failed' ? 'Failed' : s,
+    value: s,
+    color:
+      s === '5xx' || s === 'failed'
+        ? 'var(--health-error)'
+        : s === '4xx'
+          ? 'var(--health-warning)'
+          : s === '2xx'
+            ? 'var(--health-good)'
+            : undefined,
+  }),
+);
+
 function RequestsTable({
   requests,
   onRowClick,
-}: { requests: RequestRecord[]; onRowClick: (r: RequestRecord) => void }) {
+}: {
+  requests: RequestRecord[];
+  onRowClick: (r: RequestRecord) => void;
+}) {
   const [search, setSearch] = useState('');
   const [methodFilter, setMethodFilter] = useState<MethodFilter>('ALL');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL');
   const [page, setPage] = useState(1);
-  // const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
 
   function applyFilter<T>(setter: (v: T) => void, v: T) {
     setter(v);
@@ -772,38 +837,16 @@ function RequestsTable({
             gap: 'var(--space-2)',
           }}
         >
-          <div style={{ display: 'flex', gap: 'var(--space-1)', flexWrap: 'wrap' }}>
-            {(['ALL', 'GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OTHER'] as MethodFilter[]).map(
-              (m) => (
-                <FilterChip
-                  key={m}
-                  label={m}
-                  active={methodFilter === m}
-                  onClick={() => applyFilter(setMethodFilter, m)}
-                  color={m !== 'ALL' && m !== 'OTHER' ? METHOD_STYLES[m]?.color : undefined}
-                />
-              ),
-            )}
-          </div>
-          <div style={{ display: 'flex', gap: 'var(--space-1)', flexWrap: 'wrap' }}>
-            {(['ALL', '2xx', '3xx', '4xx', '5xx', 'failed'] as StatusFilter[]).map((s) => (
-              <FilterChip
-                key={s}
-                label={s === 'failed' ? 'Failed' : s}
-                active={statusFilter === s}
-                onClick={() => applyFilter(setStatusFilter, s)}
-                color={
-                  s === '5xx' || s === 'failed'
-                    ? 'var(--health-error)'
-                    : s === '4xx'
-                      ? 'var(--health-warning)'
-                      : s === '2xx'
-                        ? 'var(--health-good)'
-                        : undefined
-                }
-              />
-            ))}
-          </div>
+          <FilterChips
+            options={METHOD_FILTER_OPTIONS}
+            value={methodFilter}
+            onChange={(v) => applyFilter(setMethodFilter, v as MethodFilter)}
+          />
+          <FilterChips
+            options={STATUS_FILTER_OPTIONS}
+            value={statusFilter}
+            onChange={(v) => applyFilter(setStatusFilter, v as StatusFilter)}
+          />
         </div>
       </div>
 
@@ -849,9 +892,6 @@ function RequestsTable({
           {shown.map((r, i) => {
             const ms = methodStyle(r.method);
             const methodLabel = (r.method ?? r.type).toUpperCase().slice(0, 7);
-            // const isHovered = hoveredIdx === i;
-            // onMouseEnter={() => setHoveredIdx(i)}
-            // onMouseLeave={() => setHoveredIdx(null)}
             return (
               <button
                 key={r.requestId}
@@ -956,289 +996,14 @@ function RequestsTable({
       )}
 
       {filtered.length > REQ_PAGE_SIZE && (
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            marginTop: 'var(--space-2)',
-          }}
-        >
-          <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
-            {start + 1}–{Math.min(start + REQ_PAGE_SIZE, filtered.length)} of {filtered.length}
-          </span>
-          <div style={{ display: 'flex', gap: 'var(--space-1)' }}>
-            <PaginationBtn
-              label="← Prev"
-              disabled={safePage <= 1}
-              onClick={() => setPage(safePage - 1)}
-            />
-            <span
-              style={{
-                padding: '3px var(--space-2)',
-                fontSize: 'var(--text-xs)',
-                color: 'var(--text-muted)',
-                display: 'flex',
-                alignItems: 'center',
-              }}
-            >
-              {safePage} / {totalPages}
-            </span>
-            <PaginationBtn
-              label="Next →"
-              disabled={safePage >= totalPages}
-              onClick={() => setPage(safePage + 1)}
-            />
-          </div>
-        </div>
-      )}
-    </Section>
-  );
-}
-
-// ── Console log ────────────────────────────────────────────────────
-
-function ConsoleLog({
-  entries,
-  startTime,
-  onRowClick,
-}: { entries: ConsoleEntry[]; startTime: number; onRowClick: (e: ConsoleEntry) => void }) {
-  const [filter, setFilter] = useState<'all' | 'error' | 'warn'>('all');
-  const [page, setPage] = useState(1);
-
-  const filtered = useMemo(
-    () => (filter === 'all' ? entries : entries.filter((e) => e.level === filter)),
-    [entries, filter],
-  );
-  const totalPages = Math.max(1, Math.ceil(filtered.length / CON_PAGE_SIZE));
-  const safePage = Math.min(page, totalPages);
-  const start = (safePage - 1) * CON_PAGE_SIZE;
-  const shown = useMemo(
-    () =>
-      filtered
-        .slice()
-        .reverse()
-        .slice(start, start + CON_PAGE_SIZE),
-    [filtered, start],
-  );
-
-  const [errorCount, warnCount] = useMemo(
-    () => [
-      entries.filter((e) => e.level === 'error').length,
-      entries.filter((e) => e.level === 'warn').length,
-    ],
-    [entries],
-  );
-
-  return (
-    <Section title={entries.length === 0 ? 'Console' : `Console (${entries.length})`}>
-      {entries.length > 0 && (
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            marginBottom: 'var(--space-3)',
-          }}
-        >
-          <div style={{ display: 'flex', gap: 'var(--space-1)' }}>
-            {(['all', 'error', 'warn'] as const).map((f) => (
-              <FilterChip
-                key={f}
-                label={
-                  f === 'all'
-                    ? `All (${entries.length})`
-                    : f === 'error'
-                      ? `Errors (${errorCount})`
-                      : `Warns (${warnCount})`
-                }
-                active={filter === f}
-                onClick={() => {
-                  setFilter(f);
-                  setPage(1);
-                }}
-                color={
-                  f === 'error'
-                    ? 'var(--health-error)'
-                    : f === 'warn'
-                      ? 'var(--health-warning)'
-                      : undefined
-                }
-              />
-            ))}
-          </div>
-          {filtered.length > CON_PAGE_SIZE && (
-            <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
-              {start + 1}–{Math.min(start + CON_PAGE_SIZE, filtered.length)} of {filtered.length}
-            </span>
-          )}
-        </div>
-      )}
-
-      {shown.length === 0 ? (
-        <div
-          style={{
-            fontSize: 'var(--text-sm)',
-            color: 'var(--text-muted)',
-            padding: 'var(--space-5) 0',
-            textAlign: 'center',
-          }}
-        >
-          {entries.length === 0 ? 'No console output captured yet.' : 'No matching entries.'}
-        </div>
-      ) : (
-        <div
-          style={{
-            background: 'var(--bg-surface)',
-            border: '1px solid var(--border-subtle)',
-            borderRadius: 'var(--radius-md)',
-            overflow: 'hidden',
-          }}
-        >
-          {/* Table header */}
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: '68px 68px 100px 1fr',
-              padding: 'var(--space-2) var(--space-4)',
-              borderBottom: '1px solid var(--border-subtle)',
-              fontSize: 'var(--text-xs)',
-              color: 'var(--text-muted)',
-              fontWeight: 600,
-              letterSpacing: '0.07em',
-              textTransform: 'uppercase',
-            }}
-          >
-            <span>Level</span>
-            <span>Time</span>
-            <span>Category</span>
-            <span>Message</span>
-          </div>
-          {/* Table rows */}
-          {shown.map((entry, i) => {
-            const ls = levelStyle(entry.level);
-            const relMs = entry.timestamp - startTime;
-            const relStr = relMs > 0 ? `+${(relMs / 1000).toFixed(2)}s` : '';
-            return (
-              <button
-                key={entry.id}
-                type="button"
-                class="row-hover"
-                onClick={() => onRowClick(entry)}
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: '68px 68px 100px 1fr',
-                  padding: 'var(--space-2) var(--space-4)',
-                  border: 'none',
-                  borderBottom: i < shown.length - 1 ? '1px solid var(--border-subtle)' : 'none',
-                  alignItems: 'center',
-                  cursor: 'pointer',
-                  width: '100%',
-                  textAlign: 'left',
-                  background:
-                    entry.level === 'error'
-                      ? 'rgba(255,77,79,0.035)'
-                      : entry.level === 'warn'
-                        ? 'rgba(245,166,35,0.03)'
-                        : 'transparent',
-                  transition: 'background 80ms',
-                  fontFamily: 'inherit',
-                }}
-              >
-                <span>
-                  <span
-                    style={{
-                      display: 'inline-block',
-                      padding: '2px 6px',
-                      borderRadius: 'var(--radius-sm)',
-                      fontSize: 'var(--text-xs)',
-                      fontWeight: 700,
-                      fontFamily: 'var(--font-mono)',
-                      letterSpacing: '0.02em',
-                      textTransform: 'uppercase',
-                      background: ls.bg,
-                      color: ls.color,
-                    }}
-                  >
-                    {entry.level.slice(0, 4)}
-                  </span>
-                </span>
-                <span
-                  style={{
-                    fontSize: 'var(--text-xs)',
-                    fontFamily: 'var(--font-mono)',
-                    color: 'var(--text-muted)',
-                  }}
-                >
-                  {relStr}
-                </span>
-                <span
-                  style={{
-                    fontSize: 'var(--text-xs)',
-                    fontFamily: 'var(--font-mono)',
-                    color: 'var(--text-muted)',
-                    overflow: 'hidden',
-                    whiteSpace: 'nowrap',
-                    textOverflow: 'ellipsis',
-                    paddingRight: 'var(--space-2)',
-                  }}
-                >
-                  {entry.category || '—'}
-                </span>
-                <span
-                  style={{
-                    fontSize: 'var(--text-xs)',
-                    fontFamily: 'var(--font-mono)',
-                    color: ls.color,
-                    overflow: 'hidden',
-                    whiteSpace: 'nowrap',
-                    textOverflow: 'ellipsis',
-                  }}
-                >
-                  {entry.message}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      )}
-
-      {filtered.length > CON_PAGE_SIZE && (
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            marginTop: 'var(--space-2)',
-          }}
-        >
-          <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
-            {start + 1}–{Math.min(start + CON_PAGE_SIZE, filtered.length)} of {filtered.length}
-          </span>
-          <div style={{ display: 'flex', gap: 'var(--space-1)' }}>
-            <PaginationBtn
-              label="← Prev"
-              disabled={safePage <= 1}
-              onClick={() => setPage(safePage - 1)}
-            />
-            <span
-              style={{
-                padding: '3px var(--space-2)',
-                fontSize: 'var(--text-xs)',
-                color: 'var(--text-muted)',
-                display: 'flex',
-                alignItems: 'center',
-              }}
-            >
-              {safePage} / {totalPages}
-            </span>
-            <PaginationBtn
-              label="Next →"
-              disabled={safePage >= totalPages}
-              onClick={() => setPage(safePage + 1)}
-            />
-          </div>
-        </div>
+        <PaginationBar
+          page={safePage}
+          totalPages={totalPages}
+          start={start}
+          pageSize={REQ_PAGE_SIZE}
+          total={filtered.length}
+          onPageChange={setPage}
+        />
       )}
     </Section>
   );
@@ -1266,7 +1031,6 @@ function Drawer({ state, onClose }: { state: NonNullable<DrawerState>; onClose: 
 
   return (
     <>
-      {/* Backdrop */}
       <div
         role="button"
         tabIndex={-1}
@@ -1284,7 +1048,6 @@ function Drawer({ state, onClose }: { state: NonNullable<DrawerState>; onClose: 
           transition: 'opacity 200ms ease',
         }}
       />
-      {/* Panel */}
       <div
         style={{
           position: 'fixed',
@@ -1302,7 +1065,6 @@ function Drawer({ state, onClose }: { state: NonNullable<DrawerState>; onClose: 
           transition: 'transform 220ms cubic-bezier(0.16, 1, 0.3, 1)',
         }}
       >
-        {/* Drawer header */}
         <div
           style={{
             display: 'flex',
@@ -1315,7 +1077,11 @@ function Drawer({ state, onClose }: { state: NonNullable<DrawerState>; onClose: 
           }}
         >
           <span
-            style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--text-primary)' }}
+            style={{
+              fontSize: 'var(--text-sm)',
+              fontWeight: 600,
+              color: 'var(--text-primary)',
+            }}
           >
             {title}
           </span>
@@ -1340,7 +1106,6 @@ function Drawer({ state, onClose }: { state: NonNullable<DrawerState>; onClose: 
             ×
           </button>
         </div>
-        {/* Drawer body */}
         <div style={{ flex: 1, overflow: 'hidden auto', padding: 'var(--space-4)' }}>
           {state.kind === 'request' ? (
             <RequestDrawerContent data={state.data} />
@@ -1377,7 +1142,6 @@ function RequestDrawerContent({ data: r }: { data: RequestRecord }) {
   const ms = methodStyle(r.method);
   return (
     <div>
-      {/* Full URL block */}
       <div
         style={{
           padding: 'var(--space-3)',
@@ -1518,8 +1282,20 @@ function RequestDrawerContent({ data: r }: { data: RequestRecord }) {
 function ConsoleDrawerContent({
   data: entry,
   startTime,
-}: { data: ConsoleEntry; startTime: number }) {
-  const ls = levelStyle(entry.level);
+}: {
+  data: ConsoleEntry;
+  startTime: number;
+}) {
+  const LEVEL_STYLES: Record<string, { bg: string; color: string }> = {
+    error: { bg: 'rgba(255,77,79,0.15)', color: 'var(--console-error, var(--health-error))' },
+    warn: { bg: 'rgba(245,166,35,0.15)', color: 'var(--console-warn, var(--health-warning))' },
+    info: { bg: 'rgba(96,165,250,0.15)', color: 'var(--console-info, #60a5fa)' },
+    log: { bg: 'rgba(74,74,98,0.2)', color: 'var(--console-log, var(--text-secondary))' },
+  };
+  const ls = LEVEL_STYLES[entry.level.toLowerCase()] ?? {
+    bg: 'rgba(74,74,98,0.2)',
+    color: 'var(--text-muted)',
+  };
   const relMs = entry.timestamp - startTime;
   const relStr = relMs > 0 ? `+${(relMs / 1000).toFixed(3)}s` : 'before load';
 
@@ -1608,32 +1384,6 @@ function ConsoleDrawerContent({
 
 // ── Shared primitives ──────────────────────────────────────────────
 
-function PaginationBtn({
-  label,
-  disabled,
-  onClick,
-}: { label: string; disabled: boolean; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={onClick}
-      style={{
-        padding: '3px 10px',
-        borderRadius: 'var(--radius-sm)',
-        border: '1px solid var(--border-default)',
-        background: 'var(--bg-surface)',
-        color: disabled ? 'var(--text-muted)' : 'var(--text-secondary)',
-        fontSize: 'var(--text-xs)',
-        cursor: disabled ? 'default' : 'pointer',
-        opacity: disabled ? 0.5 : 1,
-      }}
-    >
-      {label}
-    </button>
-  );
-}
-
 function Section({ title, children }: { title: string; children: ComponentChildren }) {
   return (
     <div>
@@ -1650,43 +1400,6 @@ function Section({ title, children }: { title: string; children: ComponentChildr
         {title}
       </div>
       {children}
-    </div>
-  );
-}
-
-function Stat({ label, value, color }: { label: string; value: string; color?: string }) {
-  return (
-    <div
-      style={{
-        background: 'var(--bg-surface)',
-        border: '1px solid var(--border-subtle)',
-        borderRadius: 'var(--radius-md)',
-        padding: 'var(--space-3)',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 4,
-      }}
-    >
-      <div
-        style={{
-          fontSize: 'var(--text-xs)',
-          color: 'var(--text-muted)',
-          textTransform: 'uppercase',
-          letterSpacing: '0.04em',
-        }}
-      >
-        {label}
-      </div>
-      <div
-        style={{
-          fontSize: 'var(--text-lg)',
-          fontWeight: 600,
-          color: color ?? 'var(--text-primary)',
-          fontVariantNumeric: 'tabular-nums',
-        }}
-      >
-        {value}
-      </div>
     </div>
   );
 }
@@ -1813,12 +1526,6 @@ function ThemeCycle({ current, onChange }: { current: Theme; onChange: (t: Theme
 }
 
 // ── Formatters ─────────────────────────────────────────────────────
-
-function ratingToHealth(rating: string): string {
-  if (rating === 'good') return 'good';
-  if (rating === 'needs-improvement') return 'warning';
-  return 'error';
-}
 
 function fmtVital(name: string, value: number): string {
   if (name === 'CLS') return value.toFixed(3);

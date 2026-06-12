@@ -1,3 +1,5 @@
+import { MetaBadge } from '@shared/components/MetaBadge';
+import type { MetaBadgeType } from '@shared/components/MetaBadge';
 import type { Health, TabSummary } from '@shared/types';
 import { hostname } from '@shared/urlUtils';
 import { memo } from 'preact/compat';
@@ -8,6 +10,14 @@ export interface CTabInfo {
   url: string;
   title: string;
   favIconUrl?: string;
+  pinned?: boolean;
+  incognito?: boolean;
+  audible?: boolean;
+  muted?: boolean;
+  status?: 'loading' | 'complete';
+  discarded?: boolean;
+  index?: number;
+  windowId?: number;
 }
 
 export type TabHealthEntry = { health: Health; score: number; analysed: boolean };
@@ -186,6 +196,21 @@ const TabDrawerItem = memo<TabDrawerItemProps>(function TabDrawerItem({
             <span class="tab-drawer-item-host">{host}</span>
             {tab.title && tab.title !== host && (
               <span class="tab-drawer-item-title">{tab.title}</span>
+            )}
+            {(tab.pinned ||
+              tab.incognito ||
+              tab.audible ||
+              tab.muted ||
+              tab.status === 'loading' ||
+              tab.discarded) && (
+              <div style={{ display: 'flex', gap: 3, marginTop: 2, flexWrap: 'wrap' }}>
+                {tab.pinned && <MetaBadge type={'pinned' as MetaBadgeType} />}
+                {tab.incognito && <MetaBadge type={'incognito' as MetaBadgeType} />}
+                {tab.audible && <MetaBadge type={'audible' as MetaBadgeType} />}
+                {tab.muted && <MetaBadge type={'muted' as MetaBadgeType} />}
+                {tab.status === 'loading' && <MetaBadge type={'loading' as MetaBadgeType} />}
+                {tab.discarded && <MetaBadge type={'discarded' as MetaBadgeType} />}
+              </div>
             )}
           </div>
         </div>

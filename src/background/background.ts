@@ -87,37 +87,33 @@ chrome.runtime.onMessage.addListener((msg: KspMessage, sender, sendResponse) => 
   const senderTabId = sender.tab?.id;
   const payloadTabId = (msg as Record<string, unknown>).tabId as number | undefined;
 
-  LOG('msg:recv', msg.type, 'senderTab:', senderTabId, 'payloadTab:', payloadTabId);
-
   if (msg.type === 'KSPULSE_GET_STATE') {
     // Async with sendResponse — must return true to keep channel open.
     (async () => {
       const tabId = payloadTabId ?? senderTabId;
       if (!tabId) {
-        LOG('msg:get_state — no tabId resolved, sending null');
         sendResponse(null);
         return;
       }
 
       let state = await tabStateManager.get(tabId);
-      LOG('msg:get_state', tabId, state ? 'found in storage' : 'not in storage');
+      LOG('get_state', tabId, state ? 'found' : 'not found');
 
       // Auto-init tabs that were open before the extension was installed/reloaded
       if (!state) {
         try {
           const tab = await chrome.tabs.get(tabId);
           if (tab.url && !tab.url.startsWith('chrome://')) {
-            LOG('msg:get_state — auto-init existing tab', tabId, tab.url);
+            LOG('get_state:auto-init', tabId, tab.url);
             await tabStateManager.init(tabId, tab.url);
             state = await tabStateManager.get(tabId);
           }
         } catch (e) {
-          LOG('msg:get_state — chrome.tabs.get failed', e);
+          LOG('get_state:tabs.get failed', e);
         }
       }
 
       if (!state) {
-        LOG('msg:get_state — state still null after auto-init attempt, sending null');
         sendResponse(null);
         return;
       }
@@ -129,16 +125,9 @@ chrome.runtime.onMessage.addListener((msg: KspMessage, sender, sendResponse) => 
         health: classifier.overallHealth(state),
       };
       LOG(
-        'msg:get_state — responding',
+        'get_state:respond',
         tabId,
-        'health:',
-        summary.health,
-        'score:',
-        summary.score,
-        'requests:',
-        state.requests.length,
-        'vitals:',
-        Object.keys(state.vitals),
+        `health=${summary.health} score=${summary.score} reqs=${state.requests.length} console=${state.console.length}`,
       );
       // Keep badge in sync for tabs that were open before the extension loaded
       updateBadge(tabId, summary.health as Health);
@@ -155,11 +144,12 @@ chrome.runtime.onMessage.addListener((msg: KspMessage, sender, sendResponse) => 
         return;
       }
       const { items } = msg as unknown as BatchMessage;
-      LOG('msg:batch', senderTabId, items.length, 'items');
+      LOG('batch', senderTabId, items.length, 'items');
       for (const item of items) {
         await handleContentMessage(senderTabId, item);
       }
       await refreshBadge(senderTabId, 'batch');
+      LOG('console:notify', senderTabId, 'ports:', dashboardPorts.size);
       notifyDashboards(senderTabId);
       return;
     }
@@ -200,6 +190,7 @@ async function handleContentMessage(tabId: number, msg: KspMessage): Promise<voi
   switch (msg.type) {
     case 'KSPULSE_CONSOLE': {
       const m = msg as ConsoleMessage;
+      LOG('console:add', tabId, m.level, m.message.slice(0, 80));
       await tabStateManager.addConsoleEntry(tabId, {
         id: `${tabId}-${Date.now()}-${Math.random()}`,
         level: m.level,
@@ -245,21 +236,18 @@ async function handleContentMessage(tabId: number, msg: KspMessage): Promise<voi
   }
 }
 
-async function refreshBadge(tabId: number, from: string): Promise<void> {
+async function refreshBadge(tabId: number, _from: string): Promise<void> {
   const state = await tabStateManager.get(tabId);
   if (!state) return;
   // Always recompute health from current data — don't branch on stored state.health
   // (init sets it to 'loading' which would otherwise keep it stuck there forever)
   const health = classifier.overallHealth(state);
-  LOG(`refreshBadge[ ${from} ]: `, {
-    tabId: tabId,
-    health: health,
-  });
   await tabStateManager.setHealth(tabId, health);
   updateBadge(tabId, health);
 }
 
 function notifyDashboards(tabId: number): void {
+  LOG('port:push', { tabId, ports: dashboardPorts.size });
   for (const port of dashboardPorts) {
     try {
       port.postMessage({ type: 'KSPULSE_STATE_UPDATE', tabId });

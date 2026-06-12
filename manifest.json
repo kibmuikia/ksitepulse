@@ -21,7 +21,8 @@
       "matches": ["http://*/*", "https://*/*"],
       "js": ["src/content/content.ts"],
       "run_at": "document_start",
-      "all_frames": false
+      "all_frames": false,
+      "world": "MAIN"
     }
   ],
   "action": {
