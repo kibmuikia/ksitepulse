@@ -2,10 +2,14 @@ import { applyTheme, getUserConfig } from '@config/userConfig';
 import { Tooltip } from '@shared/components/Tooltip';
 import { VITAL_TIPS } from '@shared/constants';
 import type { ConsoleEntry, Health, Issue, RequestRecord, TabSummary, Theme } from '@shared/types';
+import { hostname } from '@shared/urlUtils';
 import { render } from 'preact';
 import type { ComponentChildren } from 'preact';
-import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { HealthRing } from '../popup/components/HealthRing';
+import { EmptyTabState } from './components/EmptyTabState';
+import { TabDrawer, fetchTabHealth } from './components/TabDrawer';
+import type { TabHealthEntry } from './components/TabDrawer';
 import '../styles/tokens.css';
 import '../styles/base.css';
 
@@ -72,14 +76,6 @@ const STATUS_TEXT: Record<number, string> = {
 
 // ── Utilities ──────────────────────────────────────────────────────
 
-function hostname(url: string): string {
-  try {
-    return new URL(url).hostname || url;
-  } catch {
-    return url;
-  }
-}
-
 function endpointPath(url: string): string {
   try {
     const u = new URL(url);
@@ -124,19 +120,18 @@ function Dashboard() {
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [theme, setTheme] = useState<Theme>('auto');
-  const [switchOpen, setSwitchOpen] = useState(false);
   const [drawer, setDrawer] = useState<DrawerState>(null);
-  const switchRef = useRef<HTMLDivElement>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [tabHealthMap, setTabHealthMap] = useState<Record<number, TabHealthEntry>>({});
+  const [reloading, setReloading] = useState(false);
 
   const selectedTab = useMemo(
     () => tabs.find((t) => t.id === selectedId) ?? null,
     [tabs, selectedId],
   );
-  const otherTabs = useMemo(() => tabs.filter((t) => t.id !== selectedId), [tabs, selectedId]);
 
   const selectedIdRef = useRef<number | null>(null);
   const fetchRef = useRef<((id: number) => void) | null>(null);
-  // Tracks whether we have content so doFetch can decide full-load vs quiet refresh
   const hasSummaryRef = useRef(false);
 
   function doFetch(tabId: number) {
@@ -168,8 +163,17 @@ function Dashboard() {
     hasSummaryRef.current = false;
     setSummary(null);
     setSelectedId(id);
+    setDrawerOpen(false);
     doFetch(id);
   }
+
+  const handleReload = useCallback(() => {
+    if (!selectedId) return;
+    setReloading(true);
+    chrome.tabs.reload(selectedId, {}, () => {
+      setTimeout(() => setReloading(false), 5000);
+    });
+  }, [selectedId]);
 
   useEffect(() => {
     getUserConfig().then((cfg) => {
@@ -206,15 +210,15 @@ function Dashboard() {
         setSelectedId(target);
         doFetch(target);
       }
+
+      fetchTabHealth(
+        visible.map((t) => t.id),
+        (tabId, entry) => setTabHealthMap((prev) => ({ ...prev, [tabId]: entry })),
+      );
     });
 
-    function handleDocClick(e: MouseEvent) {
-      if (switchRef.current && !switchRef.current.contains(e.target as Node)) setSwitchOpen(false);
-    }
-    document.addEventListener('mousedown', handleDocClick);
     return () => {
       port.disconnect();
-      document.removeEventListener('mousedown', handleDocClick);
     };
   }, []);
 
@@ -260,123 +264,37 @@ function Dashboard() {
         <div
           style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexShrink: 0 }}
         >
-          {otherTabs.length > 0 && (
-            <div ref={switchRef} style={{ position: 'relative' }}>
-              <button
-                type="button"
-                onClick={() => setSwitchOpen((o) => !o)}
+          {tabs.length > 1 && (
+            <button
+              type="button"
+              onClick={() => setDrawerOpen(true)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 'var(--space-1)',
+                padding: '5px var(--space-3)',
+                border: '1px solid var(--border-default)',
+                borderRadius: 'var(--radius-sm)',
+                background: 'transparent',
+                color: 'var(--text-secondary)',
+                fontSize: 'var(--text-xs)',
+                fontWeight: 500,
+                cursor: 'pointer',
+              }}
+            >
+              All tabs
+              <span
                 style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 'var(--space-1)',
-                  padding: '5px var(--space-3)',
-                  border: '1px solid var(--border-default)',
-                  borderRadius: 'var(--radius-sm)',
-                  background: switchOpen ? 'var(--bg-elevated)' : 'transparent',
-                  color: 'var(--text-secondary)',
-                  fontSize: 'var(--text-xs)',
-                  fontWeight: 500,
+                  background: 'var(--bg-elevated)',
+                  borderRadius: 9,
+                  padding: '1px 5px',
+                  fontSize: 10,
+                  color: 'var(--text-muted)',
                 }}
               >
-                Other tabs
-                <span style={{ fontSize: 9, opacity: 0.6 }}>{switchOpen ? '▲' : '▼'}</span>
-              </button>
-              {switchOpen && (
-                <div
-                  style={{
-                    position: 'absolute',
-                    top: 'calc(100% + 6px)',
-                    right: 0,
-                    width: 280,
-                    background: 'var(--bg-elevated)',
-                    border: '1px solid var(--border-default)',
-                    borderRadius: 'var(--radius-md)',
-                    boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
-                    zIndex: 100,
-                    overflow: 'hidden',
-                  }}
-                >
-                  <div
-                    style={{
-                      padding: '6px var(--space-3)',
-                      fontSize: 'var(--text-xs)',
-                      color: 'var(--text-muted)',
-                      fontWeight: 600,
-                      letterSpacing: '0.06em',
-                      textTransform: 'uppercase',
-                      borderBottom: '1px solid var(--border-subtle)',
-                    }}
-                  >
-                    Open tabs ({otherTabs.length})
-                  </div>
-                  <div style={{ maxHeight: 320, overflow: 'hidden auto' }}>
-                    {otherTabs.map((tab) => (
-                      <button
-                        key={tab.id}
-                        type="button"
-                        onClick={() => {
-                          selectTab(tab.id);
-                          setSwitchOpen(false);
-                        }}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 'var(--space-2)',
-                          width: '100%',
-                          padding: '9px var(--space-3)',
-                          background: 'transparent',
-                          border: 'none',
-                          borderBottom: '1px solid var(--border-subtle)',
-                          cursor: 'pointer',
-                          textAlign: 'left',
-                        }}
-                      >
-                        {tab.favIconUrl && (
-                          <img
-                            src={tab.favIconUrl}
-                            alt=""
-                            aria-hidden="true"
-                            width={14}
-                            height={14}
-                            style={{ borderRadius: 2, flexShrink: 0 }}
-                            onError={(e) => {
-                              (e.currentTarget as HTMLImageElement).style.display = 'none';
-                            }}
-                          />
-                        )}
-                        <div style={{ minWidth: 0 }}>
-                          <div
-                            style={{
-                              fontSize: 'var(--text-xs)',
-                              fontWeight: 500,
-                              color: 'var(--text-primary)',
-                              overflow: 'hidden',
-                              whiteSpace: 'nowrap',
-                              textOverflow: 'ellipsis',
-                            }}
-                          >
-                            {hostname(tab.url)}
-                          </div>
-                          {tab.title !== hostname(tab.url) && (
-                            <div
-                              style={{
-                                fontSize: 'var(--text-xs)',
-                                color: 'var(--text-muted)',
-                                overflow: 'hidden',
-                                whiteSpace: 'nowrap',
-                                textOverflow: 'ellipsis',
-                              }}
-                            >
-                              {tab.title}
-                            </div>
-                          )}
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
+                {tabs.length}
+              </span>
+            </button>
           )}
           <ThemeCycle
             current={theme}
@@ -395,7 +313,7 @@ function Dashboard() {
         ) : loading ? (
           <LoadingPlaceholder />
         ) : !summary ? (
-          <Placeholder text="No data yet — navigate to a page in this tab." />
+          <EmptyTabState reloading={reloading} onReload={handleReload} />
         ) : (
           <div style={{ position: 'relative' }}>
             {refreshing && (
@@ -424,6 +342,17 @@ function Dashboard() {
 
       {/* ── Side Drawer ────────────────────────────────────────────── */}
       {drawer && <Drawer state={drawer} onClose={() => setDrawer(null)} />}
+
+      {/* ── Tab Drawer ─────────────────────────────────────────────── */}
+      {drawerOpen && (
+        <TabDrawer
+          tabs={tabs}
+          selectedId={selectedId}
+          healthMap={tabHealthMap}
+          onSelectTab={selectTab}
+          onClose={() => setDrawerOpen(false)}
+        />
+      )}
     </div>
   );
 }
