@@ -1,6 +1,6 @@
 {
   "name": "ksitepulse",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Chrome extension that monitors page health in real time — Everyday Mode for plain-language summaries and Developer Mode for full metrics, waterfall, and console streaming.",
   "private": true,
   "type": "module",
