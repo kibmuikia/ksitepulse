@@ -28,7 +28,7 @@ type DrawerState =
   | { kind: 'console'; data: ConsoleEntry; startTime: number }
   | null;
 
-// ── Method badge styles ────────────────────────────────────────────
+// ── Shared style maps (module-scope — no per-render allocation) ────
 
 const METHOD_STYLES: Record<string, { bg: string; color: string }> = {
   GET: { bg: 'rgba(0,200,150,0.15)', color: 'var(--health-good)' },
@@ -38,6 +38,19 @@ const METHOD_STYLES: Record<string, { bg: string; color: string }> = {
   DELETE: { bg: 'rgba(255,77,79,0.15)', color: 'var(--health-error)' },
 };
 const DEFAULT_METHOD_STYLE = { bg: 'rgba(74,74,98,0.2)', color: 'var(--text-muted)' };
+
+const CONSOLE_LEVEL_STYLES: Record<string, { bg: string; color: string }> = {
+  error: { bg: 'rgba(255,77,79,0.15)', color: 'var(--console-error, var(--health-error))' },
+  warn: { bg: 'rgba(245,166,35,0.15)', color: 'var(--console-warn, var(--health-warning))' },
+  info: { bg: 'rgba(96,165,250,0.15)', color: 'var(--console-info, #60a5fa)' },
+  log: { bg: 'rgba(74,74,98,0.2)', color: 'var(--console-log, var(--text-secondary))' },
+};
+const DEFAULT_CONSOLE_LEVEL_STYLE = { bg: 'rgba(74,74,98,0.2)', color: 'var(--text-muted)' };
+
+const BENTO_GRID_AREAS =
+  '"health health stats stats stats stats nav nav nav nav nav nav" ' +
+  '"vitals vitals vitals vitals issues issues issues issues issues issues issues issues" ' +
+  '"reqs reqs reqs reqs reqs reqs reqs reqs reqs reqs reqs reqs"';
 
 // ── HTTP status display ────────────────────────────────────────────
 
@@ -142,14 +155,14 @@ function Dashboard() {
   }
   fetchRef.current = doFetch;
 
-  function selectTab(id: number) {
+  const selectTab = useCallback((id: number) => {
     LOG('tab:select', id);
     hasSummaryRef.current = false;
     setSummary(null);
     setSelectedId(id);
     setDrawerOpen(false);
-    doFetch(id);
-  }
+    fetchRef.current?.(id);
+  }, []);
 
   const handleReload = useCallback(() => {
     if (!selectedId) return;
@@ -564,10 +577,7 @@ function Content({
       style={{
         display: 'grid',
         gridTemplateColumns: 'repeat(12, 1fr)',
-        gridTemplateAreas:
-          '"health health stats stats stats stats nav nav nav nav nav nav" ' +
-          '"vitals vitals vitals vitals issues issues issues issues issues issues issues issues" ' +
-          '"reqs reqs reqs reqs reqs reqs reqs reqs reqs reqs reqs reqs"',
+        gridTemplateAreas: BENTO_GRID_AREAS,
         gap: 'var(--space-4)',
         maxWidth: 960,
         margin: '0 auto',
@@ -1286,16 +1296,7 @@ function ConsoleDrawerContent({
   data: ConsoleEntry;
   startTime: number;
 }) {
-  const LEVEL_STYLES: Record<string, { bg: string; color: string }> = {
-    error: { bg: 'rgba(255,77,79,0.15)', color: 'var(--console-error, var(--health-error))' },
-    warn: { bg: 'rgba(245,166,35,0.15)', color: 'var(--console-warn, var(--health-warning))' },
-    info: { bg: 'rgba(96,165,250,0.15)', color: 'var(--console-info, #60a5fa)' },
-    log: { bg: 'rgba(74,74,98,0.2)', color: 'var(--console-log, var(--text-secondary))' },
-  };
-  const ls = LEVEL_STYLES[entry.level.toLowerCase()] ?? {
-    bg: 'rgba(74,74,98,0.2)',
-    color: 'var(--text-muted)',
-  };
+  const ls = CONSOLE_LEVEL_STYLES[entry.level.toLowerCase()] ?? DEFAULT_CONSOLE_LEVEL_STYLE;
   const relMs = entry.timestamp - startTime;
   const relStr = relMs > 0 ? `+${(relMs / 1000).toFixed(3)}s` : 'before load';
 
