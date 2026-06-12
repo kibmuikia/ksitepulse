@@ -144,8 +144,7 @@ const TabDrawerItem = memo<TabDrawerItemProps>(function TabDrawerItem({
   const [expanded, setExpanded] = useState(false);
   const isPending = !health || health.health === 'loading';
   const isUnanalysed = health !== null && health.health !== 'loading' && !health.analysed;
-  const healthVar =
-    health && health.analysed ? `var(--health-${health.health})` : 'var(--health-loading)';
+  const healthVar = health?.analysed ? `var(--health-${health.health})` : 'var(--health-loading)';
   const host = hostname(tab.url);
 
   const handleClick = () => {
