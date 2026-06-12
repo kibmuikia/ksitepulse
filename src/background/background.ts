@@ -66,7 +66,6 @@ chrome.webRequest.onCompleted.addListener(
       fromCache,
       duration: start != null ? timeStamp - start : null,
     });
-    await refreshBadge(tabId, 'webRequest:completed');
   },
   { urls: ['<all_urls>'] },
 );
