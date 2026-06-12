@@ -5,7 +5,7 @@ export interface EmptyTabStateProps {
 
 export function EmptyTabState({ reloading, onReload }: EmptyTabStateProps) {
   return (
-    <div class="empty-tab-state" role="status">
+    <output class="empty-tab-state">
       <div class="empty-tab-state-icon" aria-hidden="true">
         ◎
       </div>
@@ -28,6 +28,6 @@ export function EmptyTabState({ reloading, onReload }: EmptyTabStateProps) {
           Reload page
         </button>
       )}
-    </div>
+    </output>
   );
 }

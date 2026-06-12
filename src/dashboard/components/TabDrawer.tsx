@@ -53,12 +53,12 @@ export function TabDrawer({ tabs, selectedId, healthMap, onSelectTab, onClose }:
       />
 
       {/* Panel */}
-      <div
+      <dialog
         class="tab-drawer-panel"
         style={{ transform: visible ? 'translateX(0)' : 'translateX(100%)' }}
-        role="dialog"
         aria-modal="true"
         aria-label="All open tabs"
+        open
       >
         <div class="tab-drawer-header">
           <span class="tab-drawer-title">Open tabs ({tabs.length})</span>
@@ -67,7 +67,7 @@ export function TabDrawer({ tabs, selectedId, healthMap, onSelectTab, onClose }:
           </button>
         </div>
 
-        <div class="tab-drawer-list" role="list">
+        <ul class="tab-drawer-list">
           {tabs.map((tab, i) => (
             <TabDrawerItem
               key={tab.id}
@@ -78,8 +78,8 @@ export function TabDrawer({ tabs, selectedId, healthMap, onSelectTab, onClose }:
               onClick={() => onSelectTab(tab.id)}
             />
           ))}
-        </div>
-      </div>
+        </ul>
+      </dialog>
     </>
   );
 }
@@ -97,12 +97,12 @@ export function fetchTabHealth(
 ): void {
   for (let i = 0; i < tabIds.length; i += batchSize) {
     const chunk = tabIds.slice(i, i + batchSize);
-    chunk.forEach((tabId) => {
+    for (const tabId of chunk) {
       chrome.runtime.sendMessage({ type: 'KSPULSE_GET_STATE', tabId }, (res: TabSummary | null) => {
         if (chrome.runtime.lastError || !res) return;
         onResult(tabId, { health: res.health, score: res.score });
       });
-    });
+    }
   }
 }
 
@@ -128,53 +128,54 @@ const TabDrawerItem = memo(function TabDrawerItem({
   const host = hostname(tab.url);
 
   return (
-    <button
-      type="button"
-      role="listitem"
-      onClick={onClick}
-      class={`tab-drawer-item${isActive ? ' tab-drawer-item--active' : ''}`}
-      style={{ animationDelay: `${index * 30}ms` }}
-      aria-current={isActive ? 'true' : undefined}
-    >
-      {/* Left: favicon + text */}
-      <div class="tab-drawer-item-identity">
-        {tab.favIconUrl ? (
-          <img
-            src={tab.favIconUrl}
-            alt=""
+    <li>
+      <button
+        type="button"
+        onClick={onClick}
+        class={`tab-drawer-item${isActive ? ' tab-drawer-item--active' : ''}`}
+        style={{ animationDelay: `${index * 30}ms` }}
+        aria-current={isActive ? 'true' : undefined}
+      >
+        {/* Left: favicon + text */}
+        <div class="tab-drawer-item-identity">
+          {tab.favIconUrl ? (
+            <img
+              src={tab.favIconUrl}
+              alt=""
+              aria-hidden="true"
+              width={14}
+              height={14}
+              class="tab-drawer-item-favicon"
+              onError={(e) => {
+                (e.currentTarget as HTMLImageElement).style.display = 'none';
+              }}
+            />
+          ) : (
+            <div class="tab-drawer-item-favicon-placeholder" aria-hidden="true" />
+          )}
+          <div class="tab-drawer-item-text">
+            <span class="tab-drawer-item-host">{host}</span>
+            {tab.title && tab.title !== host && (
+              <span class="tab-drawer-item-title">{tab.title}</span>
+            )}
+          </div>
+        </div>
+
+        {/* Right: active chip + health dot + score */}
+        <div class="tab-drawer-item-meta">
+          {isActive && <span class="tab-drawer-item-active-chip">Active</span>}
+          <span
+            class={`tab-drawer-item-dot${isPending ? ' tab-drawer-item-dot--pulse' : ''}`}
+            style={{ background: healthVar }}
             aria-hidden="true"
-            width={14}
-            height={14}
-            class="tab-drawer-item-favicon"
-            onError={(e) => {
-              (e.currentTarget as HTMLImageElement).style.display = 'none';
-            }}
           />
-        ) : (
-          <div class="tab-drawer-item-favicon-placeholder" aria-hidden="true" />
-        )}
-        <div class="tab-drawer-item-text">
-          <span class="tab-drawer-item-host">{host}</span>
-          {tab.title && tab.title !== host && (
-            <span class="tab-drawer-item-title">{tab.title}</span>
+          {health && health.health !== 'loading' && (
+            <span class="tab-drawer-item-score" style={{ color: healthVar }}>
+              {health.score}
+            </span>
           )}
         </div>
-      </div>
-
-      {/* Right: active chip + health dot + score */}
-      <div class="tab-drawer-item-meta">
-        {isActive && <span class="tab-drawer-item-active-chip">Active</span>}
-        <span
-          class={`tab-drawer-item-dot${isPending ? ' tab-drawer-item-dot--pulse' : ''}`}
-          style={{ background: healthVar }}
-          aria-hidden="true"
-        />
-        {health && health.health !== 'loading' && (
-          <span class="tab-drawer-item-score" style={{ color: healthVar }}>
-            {health.score}
-          </span>
-        )}
-      </div>
-    </button>
+      </button>
+    </li>
   );
 });
