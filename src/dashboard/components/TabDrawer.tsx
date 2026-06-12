@@ -10,17 +10,27 @@ export interface CTabInfo {
   favIconUrl?: string;
 }
 
-export type TabHealthEntry = { health: Health; score: number };
+export type TabHealthEntry = { health: Health; score: number; analysed: boolean };
 
 export interface TabDrawerProps {
   tabs: CTabInfo[];
   selectedId: number | null;
   healthMap: Record<number, TabHealthEntry>;
   onSelectTab: (id: number) => void;
+  onGoToTab: (id: number) => void;
+  onStartAnalysis: (id: number) => void;
   onClose: () => void;
 }
 
-export function TabDrawer({ tabs, selectedId, healthMap, onSelectTab, onClose }: TabDrawerProps) {
+export function TabDrawer({
+  tabs,
+  selectedId,
+  healthMap,
+  onSelectTab,
+  onGoToTab,
+  onStartAnalysis,
+  onClose,
+}: TabDrawerProps) {
   const [visible, setVisible] = useState(false);
 
   // Trigger transition after first paint
@@ -76,6 +86,8 @@ export function TabDrawer({ tabs, selectedId, healthMap, onSelectTab, onClose }:
               health={healthMap[tab.id] ?? null}
               index={i}
               onClick={() => onSelectTab(tab.id)}
+              onGoToTab={() => onGoToTab(tab.id)}
+              onStartAnalysis={() => onStartAnalysis(tab.id)}
             />
           ))}
         </ul>
@@ -100,7 +112,9 @@ export function fetchTabHealth(
     for (const tabId of chunk) {
       chrome.runtime.sendMessage({ type: 'KSPULSE_GET_STATE', tabId }, (res: TabSummary | null) => {
         if (chrome.runtime.lastError || !res) return;
-        onResult(tabId, { health: res.health, score: res.score });
+        const analysed =
+          res.requests.length > 0 || Object.keys(res.vitals).length > 0 || res.nav !== null;
+        onResult(tabId, { health: res.health, score: res.score, analysed });
       });
     }
   }
@@ -114,27 +128,43 @@ interface TabDrawerItemProps {
   health: TabHealthEntry | null;
   index: number;
   onClick: () => void;
+  onGoToTab: () => void;
+  onStartAnalysis: () => void;
 }
 
-const TabDrawerItem = memo(function TabDrawerItem({
+const TabDrawerItem = memo<TabDrawerItemProps>(function TabDrawerItem({
   tab,
   isActive,
   health,
   index,
   onClick,
+  onGoToTab,
+  onStartAnalysis,
 }: TabDrawerItemProps) {
+  const [expanded, setExpanded] = useState(false);
   const isPending = !health || health.health === 'loading';
-  const healthVar = health ? `var(--health-${health.health})` : 'var(--health-loading)';
+  const isUnanalysed = health !== null && health.health !== 'loading' && !health.analysed;
+  const healthVar =
+    health && health.analysed ? `var(--health-${health.health})` : 'var(--health-loading)';
   const host = hostname(tab.url);
+
+  const handleClick = () => {
+    if (isUnanalysed) {
+      setExpanded((v) => !v);
+    } else {
+      onClick();
+    }
+  };
 
   return (
     <li>
       <button
         type="button"
-        onClick={onClick}
-        class={`tab-drawer-item${isActive ? ' tab-drawer-item--active' : ''}`}
+        onClick={handleClick}
+        class={`tab-drawer-item${isActive ? ' tab-drawer-item--active' : ''}${isUnanalysed ? ' tab-drawer-item--unanalysed' : ''}`}
         style={{ animationDelay: `${index * 30}ms` }}
         aria-current={isActive ? 'true' : undefined}
+        aria-expanded={isUnanalysed ? expanded : undefined}
       >
         {/* Left: favicon + text */}
         <div class="tab-drawer-item-identity">
@@ -161,21 +191,59 @@ const TabDrawerItem = memo(function TabDrawerItem({
           </div>
         </div>
 
-        {/* Right: active chip + health dot + score */}
+        {/* Right: active chip + health dot + score OR unanalysed badge */}
         <div class="tab-drawer-item-meta">
           {isActive && <span class="tab-drawer-item-active-chip">Active</span>}
-          <span
-            class={`tab-drawer-item-dot${isPending ? ' tab-drawer-item-dot--pulse' : ''}`}
-            style={{ background: healthVar }}
-            aria-hidden="true"
-          />
-          {health && health.health !== 'loading' && (
-            <span class="tab-drawer-item-score" style={{ color: healthVar }}>
-              {health.score}
-            </span>
+          {isUnanalysed ? (
+            <span class="tab-drawer-item-unanalysed-badge">—</span>
+          ) : (
+            <>
+              <span
+                class={`tab-drawer-item-dot${isPending ? ' tab-drawer-item-dot--pulse' : ''}`}
+                style={{ background: healthVar }}
+                aria-hidden="true"
+              />
+              {health && health.health !== 'loading' && health.analysed && (
+                <span class="tab-drawer-item-score" style={{ color: healthVar }}>
+                  {health.score}
+                </span>
+              )}
+            </>
           )}
         </div>
       </button>
+
+      {/* Expanded actions for unanalysed tabs */}
+      {isUnanalysed && expanded && (
+        <div class="tab-drawer-item-actions">
+          <button
+            type="button"
+            class="tab-drawer-action-btn tab-drawer-action-btn--secondary"
+            onClick={(e) => {
+              e.stopPropagation();
+              onGoToTab();
+            }}
+          >
+            <span class="tab-drawer-action-icon" aria-hidden="true">
+              ↗
+            </span>
+            Go to tab
+          </button>
+          <button
+            type="button"
+            class="tab-drawer-action-btn tab-drawer-action-btn--primary"
+            onClick={(e) => {
+              e.stopPropagation();
+              onStartAnalysis();
+            }}
+          >
+            <span class="tab-drawer-action-icon" aria-hidden="true">
+              ▷
+            </span>
+            Start analysis
+          </button>
+        </div>
+      )}
     </li>
   );
 });

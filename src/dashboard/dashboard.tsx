@@ -350,6 +350,8 @@ function Dashboard() {
           selectedId={selectedId}
           healthMap={tabHealthMap}
           onSelectTab={selectTab}
+          onGoToTab={(id) => chrome.tabs.update(id, { active: true })}
+          onStartAnalysis={(id) => chrome.tabs.reload(id)}
           onClose={() => setDrawerOpen(false)}
         />
       )}
