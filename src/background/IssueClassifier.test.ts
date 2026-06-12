@@ -204,7 +204,13 @@ describe('IssueClassifier', () => {
         },
       ],
       console: [
-        { level: 'error', category: 'REACT_ERROR', message: 'Hydration failed', timestamp: 0 },
+        {
+          id: `${Math.random()}`,
+          level: 'error',
+          category: 'REACT_ERROR',
+          message: 'Hydration failed',
+          timestamp: 0,
+        },
       ],
     });
     expect(classifier.healthScore(oneMedium)).toBe(80);

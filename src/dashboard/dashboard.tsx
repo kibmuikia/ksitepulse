@@ -1,25 +1,34 @@
 import { applyTheme, getUserConfig } from '@config/userConfig';
+import { FilterChips } from '@shared/components/FilterChips';
+import { MetaBadge } from '@shared/components/MetaBadge';
+import { PaginationBar } from '@shared/components/PaginationBar';
+import { StatPill } from '@shared/components/StatPill';
+import { Tooltip } from '@shared/components/Tooltip';
+import { VitalGauge } from '@shared/components/VitalGauge';
+import { VITAL_TIPS } from '@shared/constants';
 import type { ConsoleEntry, Health, Issue, RequestRecord, TabSummary, Theme } from '@shared/types';
+import { hostname } from '@shared/urlUtils';
 import { render } from 'preact';
 import type { ComponentChildren } from 'preact';
-import { useEffect, useRef, useState } from 'preact/hooks';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { HealthRing } from '../popup/components/HealthRing';
+import { ConsoleBar } from './components/ConsoleBar';
+import { EmptyTabState } from './components/EmptyTabState';
+import { TabDrawer, fetchTabHealth } from './components/TabDrawer';
+import type { CTabInfo, TabHealthEntry } from './components/TabDrawer';
 import '../styles/tokens.css';
 import '../styles/base.css';
 
 const LOG = (...args: unknown[]) => console.log('[ksp:dash]', ...args);
 
 const REQ_PAGE_SIZE = 20;
-const CON_PAGE_SIZE = 50;
 
-interface CTab {
-  id: number;
-  url: string;
-  title: string;
-  favIconUrl?: string;
-}
+type DrawerState =
+  | { kind: 'request'; data: RequestRecord }
+  | { kind: 'console'; data: ConsoleEntry; startTime: number }
+  | null;
 
-// ── Method badge styles ────────────────────────────────────────────
+// ── Shared style maps (module-scope — no per-render allocation) ────
 
 const METHOD_STYLES: Record<string, { bg: string; color: string }> = {
   GET: { bg: 'rgba(0,200,150,0.15)', color: 'var(--health-good)' },
@@ -29,6 +38,19 @@ const METHOD_STYLES: Record<string, { bg: string; color: string }> = {
   DELETE: { bg: 'rgba(255,77,79,0.15)', color: 'var(--health-error)' },
 };
 const DEFAULT_METHOD_STYLE = { bg: 'rgba(74,74,98,0.2)', color: 'var(--text-muted)' };
+
+const CONSOLE_LEVEL_STYLES: Record<string, { bg: string; color: string }> = {
+  error: { bg: 'rgba(255,77,79,0.15)', color: 'var(--console-error, var(--health-error))' },
+  warn: { bg: 'rgba(245,166,35,0.15)', color: 'var(--console-warn, var(--health-warning))' },
+  info: { bg: 'rgba(96,165,250,0.15)', color: 'var(--console-info, #60a5fa)' },
+  log: { bg: 'rgba(74,74,98,0.2)', color: 'var(--console-log, var(--text-secondary))' },
+};
+const DEFAULT_CONSOLE_LEVEL_STYLE = { bg: 'rgba(74,74,98,0.2)', color: 'var(--text-muted)' };
+
+const BENTO_GRID_AREAS =
+  '"health health stats stats stats stats nav nav nav nav nav nav" ' +
+  '"vitals vitals vitals vitals issues issues issues issues issues issues issues issues" ' +
+  '"reqs reqs reqs reqs reqs reqs reqs reqs reqs reqs reqs reqs"';
 
 // ── HTTP status display ────────────────────────────────────────────
 
@@ -54,14 +76,6 @@ const STATUS_TEXT: Record<number, string> = {
 };
 
 // ── Utilities ──────────────────────────────────────────────────────
-
-function hostname(url: string): string {
-  try {
-    return new URL(url).hostname || url;
-  } catch {
-    return url;
-  }
-}
 
 function endpointPath(url: string): string {
   try {
@@ -97,43 +111,66 @@ function reqStatusLabel(r: RequestRecord): string {
 // ── Dashboard ──────────────────────────────────────────────────────
 
 function Dashboard() {
-  const [tabs, setTabs] = useState<CTab[]>([]);
+  const [tabs, setTabs] = useState<CTabInfo[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [summary, setSummary] = useState<TabSummary | null>(null);
   const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [theme, setTheme] = useState<Theme>('auto');
-  const [switchOpen, setSwitchOpen] = useState(false);
-  const switchRef = useRef<HTMLDivElement>(null);
+  const [drawer, setDrawer] = useState<DrawerState>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [tabHealthMap, setTabHealthMap] = useState<Record<number, TabHealthEntry>>({});
+  const [reloading, setReloading] = useState(false);
 
-  const selectedTab = tabs.find((t) => t.id === selectedId) ?? null;
-  const otherTabs = tabs.filter((t) => t.id !== selectedId);
+  const selectedTab = useMemo(
+    () => tabs.find((t) => t.id === selectedId) ?? null,
+    [tabs, selectedId],
+  );
 
   const selectedIdRef = useRef<number | null>(null);
   const fetchRef = useRef<((id: number) => void) | null>(null);
+  const hasSummaryRef = useRef(false);
 
   function doFetch(tabId: number) {
     LOG('fetch:start', tabId);
     selectedIdRef.current = tabId;
-    setLoading(true);
-    setSummary(null);
+    if (hasSummaryRef.current) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
     chrome.runtime.sendMessage({ type: 'KSPULSE_GET_STATE', tabId }, (res: TabSummary | null) => {
       if (chrome.runtime.lastError) {
         LOG('error:', chrome.runtime.lastError.message);
         setLoading(false);
+        setRefreshing(false);
         return;
       }
       LOG('state', tabId, res ? `score=${res.score} health=${res.health}` : 'null');
+      hasSummaryRef.current = res !== null;
       setSummary(res);
       setLoading(false);
+      setRefreshing(false);
     });
   }
   fetchRef.current = doFetch;
 
-  function selectTab(id: number) {
+  const selectTab = useCallback((id: number) => {
     LOG('tab:select', id);
+    hasSummaryRef.current = false;
+    setSummary(null);
     setSelectedId(id);
-    doFetch(id);
-  }
+    setDrawerOpen(false);
+    fetchRef.current?.(id);
+  }, []);
+
+  const handleReload = useCallback(() => {
+    if (!selectedId) return;
+    setReloading(true);
+    chrome.tabs.reload(selectedId, {}, () => {
+      setTimeout(() => setReloading(false), 5000);
+    });
+  }, [selectedId]);
 
   useEffect(() => {
     getUserConfig().then((cfg) => {
@@ -150,14 +187,23 @@ function Dashboard() {
     });
 
     const myBase = chrome.runtime.getURL('');
-    chrome.tabs.query({}, (allTabs) => {
+    chrome.tabs.query({ url: ['http://*/*', 'https://*/*'] }, (allTabs) => {
       const visible = allTabs
-        .filter((t) => t.id && t.url && !t.url.startsWith('chrome://') && !t.url.startsWith(myBase))
+        .filter((t) => t.id && t.url && !t.url.startsWith(myBase))
         .map((t) => ({
           id: t.id!,
           url: t.url!,
           title: t.title || t.url!,
           favIconUrl: t.favIconUrl,
+          status: t.status as 'loading' | 'complete' | undefined,
+          active: t.active,
+          pinned: t.pinned,
+          incognito: t.incognito,
+          audible: t.audible,
+          muted: t.mutedInfo?.muted,
+          discarded: t.discarded,
+          index: t.index,
+          windowId: t.windowId,
         }));
       LOG('tabs:loaded', visible.length);
       setTabs(visible);
@@ -170,23 +216,17 @@ function Dashboard() {
         setSelectedId(target);
         doFetch(target);
       }
-    });
 
-    function handleDocClick(e: MouseEvent) {
-      if (switchRef.current && !switchRef.current.contains(e.target as Node)) {
-        setSwitchOpen(false);
-      }
-    }
-    document.addEventListener('mousedown', handleDocClick);
+      fetchTabHealth(
+        visible.map((t) => t.id),
+        (tabId, entry) => setTabHealthMap((prev) => ({ ...prev, [tabId]: entry })),
+      );
+    });
 
     return () => {
       port.disconnect();
-      document.removeEventListener('mousedown', handleDocClick);
     };
   }, []);
-
-  const health = (summary?.health ?? 'loading') as Health;
-  const score = summary?.score ?? 0;
 
   return (
     <div
@@ -212,7 +252,6 @@ function Dashboard() {
           flexShrink: 0,
         }}
       >
-        {/* Logo */}
         <span
           style={{
             fontWeight: 700,
@@ -224,182 +263,43 @@ function Dashboard() {
           ksite<span style={{ color: 'var(--health-good)' }}>pulse</span>
         </span>
 
-        {/* Current site identity pill */}
-        {selectedTab ? (
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 'var(--space-2)',
-              flex: 1,
-              minWidth: 0,
-              padding: '5px var(--space-3)',
-              background: 'var(--bg-surface)',
-              border: '1px solid var(--border-subtle)',
-              borderRadius: 'var(--radius-md)',
-            }}
-          >
-            {selectedTab.favIconUrl && (
-              <img
-                src={selectedTab.favIconUrl}
-                alt=""
-                aria-hidden="true"
-                width={14}
-                height={14}
-                style={{ borderRadius: 2, flexShrink: 0 }}
-                onError={(e) => {
-                  (e.currentTarget as HTMLImageElement).style.display = 'none';
-                }}
-              />
-            )}
-            <span style={{ fontSize: 'var(--text-sm)', fontWeight: 600, flexShrink: 0 }}>
-              {hostname(selectedTab.url)}
-            </span>
-            {selectedTab.title && selectedTab.title !== hostname(selectedTab.url) && (
-              <>
-                <span style={{ color: 'var(--text-muted)', flexShrink: 0 }}>—</span>
-                <span
-                  style={{
-                    fontSize: 'var(--text-sm)',
-                    color: 'var(--text-secondary)',
-                    overflow: 'hidden',
-                    whiteSpace: 'nowrap',
-                    textOverflow: 'ellipsis',
-                  }}
-                >
-                  {selectedTab.title}
-                </span>
-              </>
-            )}
-          </div>
-        ) : (
-          <div style={{ flex: 1 }} />
-        )}
+        {selectedTab ? <SiteIdentityPill tab={selectedTab} /> : <div style={{ flex: 1 }} />}
 
-        {/* Right controls */}
         <div
           style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexShrink: 0 }}
         >
-          {/* Switch tab dropdown */}
-          {otherTabs.length > 0 && (
-            <div ref={switchRef} style={{ position: 'relative' }}>
-              <button
-                type="button"
-                onClick={() => setSwitchOpen((o) => !o)}
+          {tabs.length > 1 && (
+            <button
+              type="button"
+              onClick={() => setDrawerOpen(true)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 'var(--space-1)',
+                padding: '5px var(--space-3)',
+                border: '1px solid var(--border-default)',
+                borderRadius: 'var(--radius-sm)',
+                background: 'transparent',
+                color: 'var(--text-secondary)',
+                fontSize: 'var(--text-xs)',
+                fontWeight: 500,
+                cursor: 'pointer',
+              }}
+            >
+              All tabs
+              <span
                 style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 'var(--space-1)',
-                  padding: '5px var(--space-3)',
-                  border: '1px solid var(--border-default)',
-                  borderRadius: 'var(--radius-sm)',
-                  background: switchOpen ? 'var(--bg-elevated)' : 'transparent',
-                  color: 'var(--text-secondary)',
-                  fontSize: 'var(--text-xs)',
-                  fontWeight: 500,
+                  background: 'var(--bg-elevated)',
+                  borderRadius: 9,
+                  padding: '1px 5px',
+                  fontSize: 10,
+                  color: 'var(--text-muted)',
                 }}
               >
-                Other tabs
-                <span style={{ fontSize: 9, opacity: 0.6 }}>{switchOpen ? '▲' : '▼'}</span>
-              </button>
-              {switchOpen && (
-                <div
-                  style={{
-                    position: 'absolute',
-                    top: 'calc(100% + 6px)',
-                    right: 0,
-                    width: 280,
-                    background: 'var(--bg-elevated)',
-                    border: '1px solid var(--border-default)',
-                    borderRadius: 'var(--radius-md)',
-                    boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
-                    zIndex: 100,
-                    overflow: 'hidden',
-                  }}
-                >
-                  <div
-                    style={{
-                      padding: '6px var(--space-3)',
-                      fontSize: 'var(--text-xs)',
-                      color: 'var(--text-muted)',
-                      fontWeight: 600,
-                      letterSpacing: '0.06em',
-                      textTransform: 'uppercase',
-                      borderBottom: '1px solid var(--border-subtle)',
-                    }}
-                  >
-                    Open tabs ({otherTabs.length})
-                  </div>
-                  <div style={{ maxHeight: 320, overflow: 'hidden auto' }}>
-                    {otherTabs.map((tab) => (
-                      <button
-                        key={tab.id}
-                        type="button"
-                        onClick={() => {
-                          selectTab(tab.id);
-                          setSwitchOpen(false);
-                        }}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 'var(--space-2)',
-                          width: '100%',
-                          padding: '9px var(--space-3)',
-                          background: 'transparent',
-                          border: 'none',
-                          borderBottom: '1px solid var(--border-subtle)',
-                          cursor: 'pointer',
-                          textAlign: 'left',
-                        }}
-                      >
-                        {tab.favIconUrl && (
-                          <img
-                            src={tab.favIconUrl}
-                            alt=""
-                            aria-hidden="true"
-                            width={14}
-                            height={14}
-                            style={{ borderRadius: 2, flexShrink: 0 }}
-                            onError={(e) => {
-                              (e.currentTarget as HTMLImageElement).style.display = 'none';
-                            }}
-                          />
-                        )}
-                        <div style={{ minWidth: 0 }}>
-                          <div
-                            style={{
-                              fontSize: 'var(--text-xs)',
-                              fontWeight: 500,
-                              color: 'var(--text-primary)',
-                              overflow: 'hidden',
-                              whiteSpace: 'nowrap',
-                              textOverflow: 'ellipsis',
-                            }}
-                          >
-                            {hostname(tab.url)}
-                          </div>
-                          {tab.title !== hostname(tab.url) && (
-                            <div
-                              style={{
-                                fontSize: 'var(--text-xs)',
-                                color: 'var(--text-muted)',
-                                overflow: 'hidden',
-                                whiteSpace: 'nowrap',
-                                textOverflow: 'ellipsis',
-                              }}
-                            >
-                              {tab.title}
-                            </div>
-                          )}
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
+                {tabs.length}
+              </span>
+            </button>
           )}
-
           <ThemeCycle
             current={theme}
             onChange={(t) => {
@@ -411,17 +311,244 @@ function Dashboard() {
       </header>
 
       {/* ── Main ───────────────────────────────────────────────────── */}
-      <main style={{ flex: 1, overflow: 'hidden auto', padding: 'var(--space-6)' }}>
+      <main
+        style={{
+          flex: 1,
+          overflow: 'hidden auto',
+          padding: 'var(--space-6)',
+          paddingBottom: 'calc(var(--console-bar-collapsed) + var(--space-4))',
+          position: 'relative',
+        }}
+      >
+        {refreshing && (
+          <div
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              height: 2,
+              background: 'var(--health-good)',
+              opacity: 0.5,
+              animation: 'ksp-ring-pulse 1.2s ease-in-out infinite',
+              zIndex: 10,
+            }}
+          />
+        )}
         {!selectedId ? (
           <Placeholder text="No tab selected" />
         ) : loading ? (
           <LoadingPlaceholder />
         ) : !summary ? (
-          <Placeholder text="No data yet — navigate to a page in this tab." />
+          <EmptyTabState reloading={reloading} onReload={handleReload} />
         ) : (
-          <Content summary={summary} health={health} score={score} />
+          <Content
+            summary={summary}
+            onRequestClick={(r) => setDrawer({ kind: 'request', data: r })}
+          />
         )}
       </main>
+
+      {/* ── Console Bar ────────────────────────────────────────────── */}
+      <ConsoleBar
+        entries={summary?.console ?? []}
+        startTime={summary?.startTime ?? 0}
+        onEntryClick={(e) =>
+          setDrawer({ kind: 'console', data: e, startTime: summary?.startTime ?? 0 })
+        }
+      />
+
+      {/* ── Side Drawer ────────────────────────────────────────────── */}
+      {drawer && <Drawer state={drawer} onClose={() => setDrawer(null)} />}
+
+      {/* ── Tab Drawer ─────────────────────────────────────────────── */}
+      {drawerOpen && (
+        <TabDrawer
+          tabs={tabs}
+          selectedId={selectedId}
+          healthMap={tabHealthMap}
+          onSelectTab={selectTab}
+          onGoToTab={(id) => chrome.tabs.update(id, { active: true })}
+          onStartAnalysis={(id) => chrome.tabs.reload(id)}
+          onClose={() => setDrawerOpen(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Site identity pill ─────────────────────────────────────────────
+
+function SiteIdentityPill({ tab }: { tab: CTabInfo }) {
+  const [hover, setHover] = useState(false);
+  const host = hostname(tab.url);
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 'var(--space-2)',
+        flex: 1,
+        minWidth: 0,
+        padding: '5px var(--space-3)',
+        background: 'var(--bg-surface)',
+        border: '1px solid var(--border-subtle)',
+        borderRadius: 'var(--radius-md)',
+        position: 'relative',
+        cursor: 'default',
+      }}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+    >
+      {tab.favIconUrl && (
+        <img
+          src={tab.favIconUrl}
+          alt=""
+          aria-hidden="true"
+          width={14}
+          height={14}
+          style={{ borderRadius: 2, flexShrink: 0 }}
+          onError={(e) => {
+            (e.currentTarget as HTMLImageElement).style.display = 'none';
+          }}
+        />
+      )}
+      <span style={{ fontSize: 'var(--text-sm)', fontWeight: 600, flexShrink: 0 }}>{host}</span>
+      {/* Meta badges inline */}
+      {tab.pinned && <MetaBadge type="pinned" />}
+      {tab.incognito && <MetaBadge type="incognito" />}
+      {tab.audible && <MetaBadge type="audible" />}
+      {tab.muted && <MetaBadge type="muted" />}
+      {tab.status === 'loading' && <MetaBadge type="loading" />}
+      {tab.discarded && <MetaBadge type="discarded" />}
+      {tab.title && tab.title !== host && (
+        <>
+          <span style={{ color: 'var(--text-muted)', flexShrink: 0 }}>—</span>
+          <span
+            style={{
+              fontSize: 'var(--text-sm)',
+              color: 'var(--text-secondary)',
+              overflow: 'hidden',
+              whiteSpace: 'nowrap',
+              textOverflow: 'ellipsis',
+            }}
+          >
+            {tab.title}
+          </span>
+        </>
+      )}
+      {hover && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 'calc(100% + 8px)',
+            left: 0,
+            minWidth: 300,
+            maxWidth: 500,
+            background: 'var(--bg-elevated)',
+            border: '1px solid var(--border-default)',
+            borderRadius: 'var(--radius-md)',
+            boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
+            padding: 'var(--space-3)',
+            zIndex: 200,
+            pointerEvents: 'none',
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 'var(--space-2)',
+              marginBottom: 'var(--space-2)',
+            }}
+          >
+            {tab.favIconUrl && (
+              <img
+                src={tab.favIconUrl}
+                alt=""
+                width={16}
+                height={16}
+                style={{ borderRadius: 3, flexShrink: 0 }}
+              />
+            )}
+            <span
+              style={{
+                fontWeight: 700,
+                fontSize: 'var(--text-sm)',
+                color: 'var(--text-primary)',
+              }}
+            >
+              {host}
+            </span>
+          </div>
+          {tab.title && (
+            <div
+              style={{
+                fontSize: 'var(--text-sm)',
+                color: 'var(--text-secondary)',
+                marginBottom: 'var(--space-2)',
+                lineHeight: 1.5,
+                wordBreak: 'break-word',
+              }}
+            >
+              {tab.title}
+            </div>
+          )}
+          <div
+            style={{
+              fontSize: 'var(--text-xs)',
+              color: 'var(--text-muted)',
+              fontFamily: 'var(--font-mono)',
+              wordBreak: 'break-all',
+              lineHeight: 1.5,
+              paddingTop: 'var(--space-1)',
+              borderTop: '1px solid var(--border-subtle)',
+            }}
+          >
+            {tab.url}
+          </div>
+          {(tab.windowId != null || tab.index != null || tab.status || tab.discarded) && (
+            <div
+              style={{
+                marginTop: 'var(--space-2)',
+                paddingTop: 'var(--space-1)',
+                borderTop: '1px solid var(--border-subtle)',
+                fontSize: 'var(--text-xs)',
+                color: 'var(--text-muted)',
+                display: 'flex',
+                gap: 'var(--space-3)',
+                flexWrap: 'wrap',
+              }}
+            >
+              {tab.windowId != null && <span>Window {tab.windowId}</span>}
+              {tab.index != null && <span>Tab #{tab.index}</span>}
+              {tab.status && <span>Status: {tab.status}</span>}
+              {tab.discarded && <span>Discarded</span>}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Bento card ─────────────────────────────────────────────────────
+
+function BentoCard({
+  title,
+  children,
+  style,
+  className,
+}: {
+  title: string;
+  children: ComponentChildren;
+  style?: Record<string, string>;
+  className?: string;
+}) {
+  return (
+    <div class={`glass-card bento-card${className ? ` ${className}` : ''}`} style={style}>
+      <div class="bento-card__title">{title}</div>
+      {children}
     </div>
   );
 }
@@ -430,120 +557,155 @@ function Dashboard() {
 
 function Content({
   summary,
-  health,
-  score,
-}: { summary: TabSummary; health: Health; score: number }) {
+  onRequestClick,
+}: {
+  summary: TabSummary;
+  onRequestClick: (r: RequestRecord) => void;
+}) {
+  const health = (summary.health ?? 'loading') as Health;
+  const score = summary.score ?? 0;
   const issues = summary.issues ?? [];
   const vitals = Object.entries(summary.vitals);
-  const failedReqs = summary.requests.filter((r) => r.status === 'failed');
+  const failedReqs = useMemo(
+    () => summary.requests.filter((r) => r.status === 'failed'),
+    [summary.requests],
+  );
 
   return (
     <div
       class="fade-in"
-      style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-6)', maxWidth: 960 }}
+      style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(12, 1fr)',
+        gridTemplateAreas: BENTO_GRID_AREAS,
+        gap: 'var(--space-4)',
+        maxWidth: 960,
+        margin: '0 auto',
+      }}
     >
-      {/* Health + summary stats */}
-      <div style={{ display: 'flex', gap: 'var(--space-6)', alignItems: 'flex-start' }}>
+      {/* Health ring */}
+      <BentoCard
+        title="Health"
+        className="hover-lift"
+        style={{ gridArea: 'health', display: 'flex', flexDirection: 'column' }}
+      >
         <div
           style={{
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
             gap: 'var(--space-2)',
-            flexShrink: 0,
+            flex: 1,
+            justifyContent: 'center',
           }}
         >
           <HealthRing score={score} health={health} />
-          <span
-            style={{
-              fontSize: 'var(--text-xs)',
-              color: 'var(--text-muted)',
-              textTransform: 'uppercase',
-              letterSpacing: '0.06em',
-            }}
-          >
-            Health Score
-          </span>
         </div>
+      </BentoCard>
+
+      {/* Summary stats */}
+      <BentoCard title="Summary" style={{ gridArea: 'stats' }}>
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(4, 1fr)',
-            gap: 'var(--space-3)',
-            flex: 1,
+            gridTemplateColumns: 'repeat(2, 1fr)',
+            gap: 'var(--space-2)',
           }}
         >
-          <Stat label="Requests" value={String(summary.requests.length)} />
-          <Stat
+          <StatPill label="Requests" value={String(summary.requests.length)} />
+          <StatPill
             label="Failed"
             value={String(failedReqs.length)}
             color={failedReqs.length > 0 ? 'var(--health-error)' : undefined}
           />
-          <Stat
+          <StatPill
             label="Issues"
             value={String(issues.length)}
             color={issues.length > 0 ? 'var(--health-warning)' : undefined}
           />
-          <Stat
+          <StatPill
             label="Long Tasks"
             value={String(summary.longTasks.length)}
             color={summary.longTasks.length > 2 ? 'var(--health-warning)' : undefined}
           />
         </div>
-      </div>
+      </BentoCard>
 
       {/* Navigation timing */}
-      {summary.nav && (
-        <Section title="Navigation Timing">
+      <BentoCard title="Navigation Timing" style={{ gridArea: 'nav' }}>
+        {summary.nav ? (
           <div
             style={{
               display: 'grid',
               gridTemplateColumns: 'repeat(5, 1fr)',
-              gap: 'var(--space-3)',
+              gap: 'var(--space-2)',
             }}
           >
-            <Stat label="TTFB" value={fmtMs(summary.nav.ttfb)} />
-            <Stat label="DCL" value={fmtMs(summary.nav.domContentLoaded)} />
-            <Stat label="Load" value={fmtMs(summary.nav.loadComplete)} />
-            <Stat label="Protocol" value={summary.nav.protocol || '—'} />
-            <Stat label="Transfer" value={fmtBytes(summary.nav.transferSize)} />
+            <StatPill label="TTFB" value={fmtMs(summary.nav.ttfb)} />
+            <StatPill label="DCL" value={fmtMs(summary.nav.domContentLoaded)} />
+            <StatPill label="Load" value={fmtMs(summary.nav.loadComplete)} />
+            <StatPill label="Protocol" value={summary.nav.protocol || '—'} />
+            <StatPill label="Transfer" value={fmtBytes(summary.nav.transferSize)} />
           </div>
-        </Section>
-      )}
-
-      {/* Web Vitals */}
-      {vitals.length > 0 && (
-        <Section title="Web Vitals">
+        ) : (
           <div
             style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))',
-              gap: 'var(--space-3)',
+              fontSize: 'var(--text-sm)',
+              color: 'var(--text-muted)',
+              textAlign: 'center',
+              padding: 'var(--space-4) 0',
             }}
           >
+            No timing data yet
+          </div>
+        )}
+      </BentoCard>
+
+      {/* Web Vitals */}
+      <BentoCard
+        title="Web Vitals"
+        className="hover-lift"
+        style={{ gridArea: 'vitals', display: 'flex', flexDirection: 'column' }}
+      >
+        {vitals.length > 0 ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)', flex: 1 }}>
             {vitals.map(([name, v]) => (
-              <Stat
-                key={name}
-                label={name}
-                value={fmtVital(name, v.value)}
-                color={`var(--health-${ratingToHealth(v.rating)})`}
-              />
+              <Tooltip key={name} content={VITAL_TIPS[name] ?? name} position="top">
+                <VitalGauge name={name} value={fmtVital(name, v.value)} rating={v.rating} />
+              </Tooltip>
             ))}
           </div>
-        </Section>
-      )}
+        ) : (
+          <div
+            style={{
+              fontSize: 'var(--text-sm)',
+              color: 'var(--text-muted)',
+              textAlign: 'center',
+              padding: 'var(--space-4) 0',
+            }}
+          >
+            No vitals captured yet
+          </div>
+        )}
+      </BentoCard>
 
       {/* Issues */}
-      {issues.length > 0 ? (
-        <Section title={`Issues (${issues.length})`}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+      <BentoCard title={`Issues (${issues.length})`} style={{ gridArea: 'issues' }}>
+        {issues.length > 0 ? (
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 'var(--space-2)',
+              overflow: 'hidden auto',
+              maxHeight: 260,
+            }}
+          >
             {issues.map((issue) => (
               <IssueRow key={issue.id} issue={issue} />
             ))}
           </div>
-        </Section>
-      ) : (
-        <Section title="Issues">
+        ) : (
           <div
             style={{
               display: 'flex',
@@ -561,54 +723,14 @@ function Content({
             <span style={{ color: 'var(--health-good)' }}>✓</span>
             No issues detected
           </div>
-        </Section>
-      )}
+        )}
+      </BentoCard>
 
-      <RequestsTable requests={summary.requests} />
-
-      {summary.console.length > 0 && (
-        <ConsoleLog entries={summary.console} startTime={summary.startTime} />
-      )}
+      {/* Requests — no glass, full width */}
+      <div style={{ gridArea: 'reqs' }}>
+        <RequestsTable requests={summary.requests} onRowClick={onRequestClick} />
+      </div>
     </div>
-  );
-}
-
-// ── Filter chip ────────────────────────────────────────────────────
-
-function FilterChip({
-  label,
-  active,
-  onClick,
-  color,
-}: {
-  label: string;
-  active: boolean;
-  onClick: () => void;
-  color?: string;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      style={{
-        padding: '3px 9px',
-        borderRadius: 'var(--radius-sm)',
-        border: `1px solid ${active && color ? color : active ? 'var(--border-default)' : 'var(--border-subtle)'}`,
-        background: active
-          ? color
-            ? `color-mix(in srgb, ${color} 15%, transparent)`
-            : 'var(--bg-elevated)'
-          : 'transparent',
-        fontSize: 'var(--text-xs)',
-        fontFamily: 'var(--font-mono)',
-        color: active ? (color ?? 'var(--text-primary)') : 'var(--text-muted)',
-        fontWeight: active ? 600 : 400,
-        cursor: 'pointer',
-        letterSpacing: '0.02em',
-      }}
-    >
-      {label}
-    </button>
   );
 }
 
@@ -619,7 +741,36 @@ type StatusFilter = 'ALL' | '2xx' | '3xx' | '4xx' | '5xx' | 'failed';
 
 const KNOWN_METHODS: MethodFilter[] = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
 
-function RequestsTable({ requests }: { requests: RequestRecord[] }) {
+const METHOD_FILTER_OPTIONS = (
+  ['ALL', 'GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OTHER'] as MethodFilter[]
+).map((m) => ({
+  label: m,
+  value: m,
+  color: m !== 'ALL' && m !== 'OTHER' ? METHOD_STYLES[m]?.color : undefined,
+}));
+
+const STATUS_FILTER_OPTIONS = (['ALL', '2xx', '3xx', '4xx', '5xx', 'failed'] as StatusFilter[]).map(
+  (s) => ({
+    label: s === 'failed' ? 'Failed' : s,
+    value: s,
+    color:
+      s === '5xx' || s === 'failed'
+        ? 'var(--health-error)'
+        : s === '4xx'
+          ? 'var(--health-warning)'
+          : s === '2xx'
+            ? 'var(--health-good)'
+            : undefined,
+  }),
+);
+
+function RequestsTable({
+  requests,
+  onRowClick,
+}: {
+  requests: RequestRecord[];
+  onRowClick: (r: RequestRecord) => void;
+}) {
   const [search, setSearch] = useState('');
   const [methodFilter, setMethodFilter] = useState<MethodFilter>('ALL');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL');
@@ -630,31 +781,31 @@ function RequestsTable({ requests }: { requests: RequestRecord[] }) {
     setPage(1);
   }
 
-  const filtered = requests
-    .slice()
-    .reverse()
-    .filter((r) => {
-      if (search) {
-        if (!r.url.toLowerCase().includes(search.toLowerCase())) return false;
-      }
-      if (methodFilter !== 'ALL') {
-        const m = (r.method ?? '').toUpperCase();
-        if (methodFilter === 'OTHER') {
-          if (KNOWN_METHODS.includes(m as MethodFilter)) return false;
-        } else {
-          if (m !== methodFilter) return false;
+  const filtered = useMemo(() => {
+    return requests
+      .slice()
+      .reverse()
+      .filter((r) => {
+        if (search && !r.url.toLowerCase().includes(search.toLowerCase())) return false;
+        if (methodFilter !== 'ALL') {
+          const m = (r.method ?? '').toUpperCase();
+          if (methodFilter === 'OTHER') {
+            if (KNOWN_METHODS.includes(m as MethodFilter)) return false;
+          } else {
+            if (m !== methodFilter) return false;
+          }
         }
-      }
-      if (statusFilter !== 'ALL') {
-        if (statusFilter === 'failed') return r.status === 'failed';
-        const code = r.statusCode ?? 0;
-        if (statusFilter === '2xx') return code >= 200 && code < 300;
-        if (statusFilter === '3xx') return code >= 300 && code < 400;
-        if (statusFilter === '4xx') return code >= 400 && code < 500;
-        if (statusFilter === '5xx') return code >= 500;
-      }
-      return true;
-    });
+        if (statusFilter !== 'ALL') {
+          if (statusFilter === 'failed') return r.status === 'failed';
+          const code = r.statusCode ?? 0;
+          if (statusFilter === '2xx') return code >= 200 && code < 300;
+          if (statusFilter === '3xx') return code >= 300 && code < 400;
+          if (statusFilter === '4xx') return code >= 400 && code < 500;
+          if (statusFilter === '5xx') return code >= 500;
+        }
+        return true;
+      });
+  }, [requests, search, methodFilter, statusFilter]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / REQ_PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
@@ -663,7 +814,6 @@ function RequestsTable({ requests }: { requests: RequestRecord[] }) {
 
   return (
     <Section title={`Requests (${requests.length})`}>
-      {/* Filter controls */}
       <div
         style={{
           display: 'flex',
@@ -697,38 +847,16 @@ function RequestsTable({ requests }: { requests: RequestRecord[] }) {
             gap: 'var(--space-2)',
           }}
         >
-          <div style={{ display: 'flex', gap: 'var(--space-1)', flexWrap: 'wrap' }}>
-            {(['ALL', 'GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OTHER'] as MethodFilter[]).map(
-              (m) => (
-                <FilterChip
-                  key={m}
-                  label={m}
-                  active={methodFilter === m}
-                  onClick={() => applyFilter(setMethodFilter, m)}
-                  color={m !== 'ALL' && m !== 'OTHER' ? METHOD_STYLES[m]?.color : undefined}
-                />
-              ),
-            )}
-          </div>
-          <div style={{ display: 'flex', gap: 'var(--space-1)', flexWrap: 'wrap' }}>
-            {(['ALL', '2xx', '3xx', '4xx', '5xx', 'failed'] as StatusFilter[]).map((s) => (
-              <FilterChip
-                key={s}
-                label={s === 'failed' ? 'Failed' : s}
-                active={statusFilter === s}
-                onClick={() => applyFilter(setStatusFilter, s)}
-                color={
-                  s === '5xx' || s === 'failed'
-                    ? 'var(--health-error)'
-                    : s === '4xx'
-                      ? 'var(--health-warning)'
-                      : s === '2xx'
-                        ? 'var(--health-good)'
-                        : undefined
-                }
-              />
-            ))}
-          </div>
+          <FilterChips
+            options={METHOD_FILTER_OPTIONS}
+            value={methodFilter}
+            onChange={(v) => applyFilter(setMethodFilter, v as MethodFilter)}
+          />
+          <FilterChips
+            options={STATUS_FILTER_OPTIONS}
+            value={statusFilter}
+            onChange={(v) => applyFilter(setStatusFilter, v as StatusFilter)}
+          />
         </div>
       </div>
 
@@ -752,7 +880,6 @@ function RequestsTable({ requests }: { requests: RequestRecord[] }) {
             overflow: 'hidden',
           }}
         >
-          {/* Table header */}
           <div
             style={{
               display: 'grid',
@@ -772,24 +899,30 @@ function RequestsTable({ requests }: { requests: RequestRecord[] }) {
             <span style={{ textAlign: 'right' }}>Duration</span>
             <span style={{ textAlign: 'right' }}>Size</span>
           </div>
-
-          {/* Table rows */}
           {shown.map((r, i) => {
             const ms = methodStyle(r.method);
             const methodLabel = (r.method ?? r.type).toUpperCase().slice(0, 7);
             return (
-              <div
+              <button
                 key={r.requestId}
+                type="button"
+                class="row-hover"
+                onClick={() => onRowClick(r)}
                 style={{
                   display: 'grid',
                   gridTemplateColumns: '90px 1fr 150px 88px 72px',
                   padding: 'var(--space-2) var(--space-4)',
+                  border: 'none',
                   borderBottom: i < shown.length - 1 ? '1px solid var(--border-subtle)' : 'none',
                   alignItems: 'center',
+                  cursor: 'pointer',
+                  width: '100%',
+                  textAlign: 'left',
                   background: r.status === 'failed' ? 'rgba(255,77,79,0.035)' : 'transparent',
+                  transition: 'background 80ms',
+                  fontFamily: 'inherit',
                 }}
               >
-                {/* Method badge */}
                 <span>
                   <span
                     style={{
@@ -807,8 +940,6 @@ function RequestsTable({ requests }: { requests: RequestRecord[] }) {
                     {methodLabel}
                   </span>
                 </span>
-
-                {/* Endpoint path */}
                 <span
                   style={{
                     fontSize: 'var(--text-xs)',
@@ -823,8 +954,6 @@ function RequestsTable({ requests }: { requests: RequestRecord[] }) {
                 >
                   {endpointPath(r.url)}
                 </span>
-
-                {/* Status dot + label */}
                 <span
                   style={{
                     display: 'flex',
@@ -850,8 +979,6 @@ function RequestsTable({ requests }: { requests: RequestRecord[] }) {
                     {reqStatusLabel(r)}
                   </span>
                 </span>
-
-                {/* Duration */}
                 <span
                   style={{
                     fontSize: 'var(--text-xs)',
@@ -862,8 +989,6 @@ function RequestsTable({ requests }: { requests: RequestRecord[] }) {
                 >
                   {r.duration != null ? fmtMs(r.duration) : '—'}
                 </span>
-
-                {/* Size */}
                 <span
                   style={{
                     fontSize: 'var(--text-xs)',
@@ -874,254 +999,391 @@ function RequestsTable({ requests }: { requests: RequestRecord[] }) {
                 >
                   {r.transferSize ? fmtBytes(r.transferSize) : r.fromCache ? 'cache' : '—'}
                 </span>
-              </div>
+              </button>
             );
           })}
         </div>
       )}
 
-      {/* Pagination */}
       {filtered.length > REQ_PAGE_SIZE && (
+        <PaginationBar
+          page={safePage}
+          totalPages={totalPages}
+          start={start}
+          pageSize={REQ_PAGE_SIZE}
+          total={filtered.length}
+          onPageChange={setPage}
+        />
+      )}
+    </Section>
+  );
+}
+
+// ── Side Drawer ────────────────────────────────────────────────────
+
+function Drawer({ state, onClose }: { state: NonNullable<DrawerState>; onClose: () => void }) {
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => setVisible(true));
+    return () => cancelAnimationFrame(frame);
+  }, []);
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') onClose();
+    }
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  const title = state.kind === 'request' ? 'Request Details' : 'Console Entry';
+
+  return (
+    <>
+      <div
+        role="button"
+        tabIndex={-1}
+        aria-label="Close panel"
+        onClick={onClose}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') onClose();
+        }}
+        style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(0,0,0,0.45)',
+          zIndex: 300,
+          opacity: visible ? 1 : 0,
+          transition: 'opacity 200ms ease',
+        }}
+      />
+      <div
+        style={{
+          position: 'fixed',
+          top: 0,
+          right: 0,
+          height: '100vh',
+          width: 440,
+          background: 'var(--bg-elevated)',
+          borderLeft: '1px solid var(--border-default)',
+          boxShadow: '-8px 0 32px rgba(0,0,0,0.35)',
+          zIndex: 301,
+          display: 'flex',
+          flexDirection: 'column',
+          transform: visible ? 'translateX(0)' : 'translateX(100%)',
+          transition: 'transform 220ms cubic-bezier(0.16, 1, 0.3, 1)',
+        }}
+      >
         <div
           style={{
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            marginTop: 'var(--space-2)',
+            padding: '0 var(--space-4)',
+            height: 52,
+            borderBottom: '1px solid var(--border-subtle)',
+            flexShrink: 0,
           }}
         >
-          <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
-            {start + 1}–{Math.min(start + REQ_PAGE_SIZE, filtered.length)} of {filtered.length}
+          <span
+            style={{
+              fontSize: 'var(--text-sm)',
+              fontWeight: 600,
+              color: 'var(--text-primary)',
+            }}
+          >
+            {title}
           </span>
-          <div style={{ display: 'flex', gap: 'var(--space-1)' }}>
-            <PaginationBtn
-              label="← Prev"
-              disabled={safePage <= 1}
-              onClick={() => setPage(safePage - 1)}
-            />
-            <span
-              style={{
-                padding: '3px var(--space-2)',
-                fontSize: 'var(--text-xs)',
-                color: 'var(--text-muted)',
-                display: 'flex',
-                alignItems: 'center',
-              }}
-            >
-              {safePage} / {totalPages}
-            </span>
-            <PaginationBtn
-              label="Next →"
-              disabled={safePage >= totalPages}
-              onClick={() => setPage(safePage + 1)}
-            />
-          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            style={{
+              background: 'none',
+              border: '1px solid transparent',
+              borderRadius: 'var(--radius-sm)',
+              cursor: 'pointer',
+              color: 'var(--text-muted)',
+              fontSize: 20,
+              width: 28,
+              height: 28,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              lineHeight: 1,
+            }}
+          >
+            ×
+          </button>
         </div>
-      )}
-    </Section>
+        <div style={{ flex: 1, overflow: 'hidden auto', padding: 'var(--space-4)' }}>
+          {state.kind === 'request' ? (
+            <RequestDrawerContent data={state.data} />
+          ) : (
+            <ConsoleDrawerContent data={state.data} startTime={state.startTime} />
+          )}
+        </div>
+      </div>
+    </>
   );
 }
 
-// ── Console log ────────────────────────────────────────────────────
-
-function ConsoleLog({ entries, startTime }: { entries: ConsoleEntry[]; startTime: number }) {
-  const [filter, setFilter] = useState<'all' | 'error' | 'warn'>('all');
-  const [page, setPage] = useState(1);
-
-  const filtered = filter === 'all' ? entries : entries.filter((e) => e.level === filter);
-  const totalPages = Math.max(1, Math.ceil(filtered.length / CON_PAGE_SIZE));
-  const safePage = Math.min(page, totalPages);
-  const start = (safePage - 1) * CON_PAGE_SIZE;
-  const shown = filtered
-    .slice()
-    .reverse()
-    .slice(start, start + CON_PAGE_SIZE);
-
-  const levelColor: Record<string, string> = {
-    error: 'var(--console-error)',
-    warn: 'var(--console-warn)',
-    info: 'var(--console-info)',
-    log: 'var(--console-log)',
-  };
-  const levelIcon: Record<string, string> = { error: '✗', warn: '!', info: 'i', log: '›' };
-  const errorCount = entries.filter((e) => e.level === 'error').length;
-  const warnCount = entries.filter((e) => e.level === 'warn').length;
-
+function DrawerField({ label, children }: { label: string; children: ComponentChildren }) {
   return (
-    <Section title={`Console (${entries.length})`}>
-      {/* Filter chips */}
+    <div style={{ marginBottom: 'var(--space-4)' }}>
       <div
         style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          marginBottom: 'var(--space-2)',
+          fontSize: 'var(--text-xs)',
+          color: 'var(--text-muted)',
+          fontWeight: 600,
+          textTransform: 'uppercase',
+          letterSpacing: '0.06em',
+          marginBottom: 6,
         }}
       >
-        <div style={{ display: 'flex', gap: 'var(--space-1)' }}>
-          {(['all', 'error', 'warn'] as const).map((f) => (
-            <button
-              type="button"
-              key={f}
-              onClick={() => {
-                setFilter(f);
-                setPage(1);
-              }}
-              style={{
-                padding: '3px 9px',
-                borderRadius: 'var(--radius-sm)',
-                border: `1px solid ${filter === f ? 'var(--border-default)' : 'var(--border-subtle)'}`,
-                background: filter === f ? 'var(--bg-elevated)' : 'transparent',
-                fontSize: 'var(--text-xs)',
-                cursor: 'pointer',
-                color:
-                  f === 'error'
-                    ? 'var(--console-error)'
-                    : f === 'warn'
-                      ? 'var(--console-warn)'
-                      : filter === f
-                        ? 'var(--text-primary)'
-                        : 'var(--text-muted)',
-                fontWeight: filter === f ? 600 : 400,
-              }}
-            >
-              {f === 'all'
-                ? `All (${entries.length})`
-                : f === 'error'
-                  ? `Errors (${errorCount})`
-                  : `Warns (${warnCount})`}
-            </button>
-          ))}
-        </div>
-        {filtered.length > CON_PAGE_SIZE && (
-          <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
-            {start + 1}–{Math.min(start + CON_PAGE_SIZE, filtered.length)} of {filtered.length}
-          </span>
-        )}
+        {label}
       </div>
+      {children}
+    </div>
+  );
+}
 
+function RequestDrawerContent({ data: r }: { data: RequestRecord }) {
+  const ms = methodStyle(r.method);
+  return (
+    <div>
       <div
         style={{
+          padding: 'var(--space-3)',
           background: 'var(--bg-surface)',
           border: '1px solid var(--border-subtle)',
           borderRadius: 'var(--radius-md)',
-          overflow: 'hidden',
+          fontFamily: 'var(--font-mono)',
+          fontSize: 'var(--text-xs)',
+          color: 'var(--text-secondary)',
+          wordBreak: 'break-all',
+          lineHeight: 1.6,
+          marginBottom: 'var(--space-4)',
         }}
       >
-        {shown.map((entry, i) => {
-          const relMs = entry.timestamp - startTime;
-          const relSec = relMs > 0 ? `+${(relMs / 1000).toFixed(2)}s` : '';
-          return (
-            <div
-              key={i}
-              style={{
-                display: 'grid',
-                gridTemplateColumns: '16px 52px 1fr',
-                gap: 'var(--space-2)',
-                padding: '3px var(--space-3)',
-                borderBottom: i < shown.length - 1 ? '1px solid var(--border-subtle)' : 'none',
-                alignItems: 'baseline',
-              }}
-            >
-              <span
-                style={{
-                  fontSize: 'var(--text-xs)',
-                  color: levelColor[entry.level] ?? 'var(--text-muted)',
-                  fontWeight: 600,
-                }}
-              >
-                {levelIcon[entry.level] ?? '·'}
-              </span>
-              <span
-                style={{
-                  fontSize: 'var(--text-xs)',
-                  color: 'var(--text-muted)',
-                  fontFamily: 'var(--font-mono)',
-                }}
-              >
-                {relSec}
-              </span>
-              <span
-                style={{
-                  fontSize: 'var(--text-xs)',
-                  fontFamily: 'var(--font-mono)',
-                  color: levelColor[entry.level] ?? 'var(--text-primary)',
-                  whiteSpace: 'pre-wrap',
-                  wordBreak: 'break-all',
-                  lineHeight: 1.5,
-                }}
-              >
-                {entry.message}
-              </span>
-            </div>
-          );
-        })}
+        {r.url}
       </div>
 
-      {/* Console pagination */}
-      {filtered.length > CON_PAGE_SIZE && (
-        <div
+      <DrawerField label="Method">
+        <span
           style={{
-            display: 'flex',
-            justifyContent: 'flex-end',
-            gap: 'var(--space-1)',
-            marginTop: 'var(--space-2)',
+            display: 'inline-block',
+            padding: '2px 8px',
+            borderRadius: 'var(--radius-sm)',
+            fontSize: 'var(--text-xs)',
+            fontWeight: 700,
+            fontFamily: 'var(--font-mono)',
+            background: ms.bg,
+            color: ms.color,
           }}
         >
-          <PaginationBtn
-            label="← Prev"
-            disabled={safePage <= 1}
-            onClick={() => setPage(safePage - 1)}
-          />
+          {(r.method ?? r.type).toUpperCase()}
+        </span>
+      </DrawerField>
+
+      <DrawerField label="Status">
+        <span
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 6,
+            fontFamily: 'var(--font-mono)',
+            fontSize: 'var(--text-sm)',
+          }}
+        >
           <span
             style={{
-              padding: '3px var(--space-2)',
+              width: 8,
+              height: 8,
+              borderRadius: '50%',
+              background: reqDotColor(r),
+              flexShrink: 0,
+              display: 'inline-block',
+            }}
+          />
+          {reqStatusLabel(r)}
+        </span>
+      </DrawerField>
+
+      <DrawerField label="Duration">
+        <span
+          style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: 'var(--text-sm)',
+            color: 'var(--text-primary)',
+          }}
+        >
+          {r.duration != null ? fmtMs(r.duration) : '—'}
+        </span>
+      </DrawerField>
+
+      <DrawerField label="Transfer Size">
+        <span
+          style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: 'var(--text-sm)',
+            color: 'var(--text-primary)',
+          }}
+        >
+          {r.transferSize ? fmtBytes(r.transferSize) : '—'}
+        </span>
+      </DrawerField>
+
+      <DrawerField label="Source">
+        <span
+          style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: 'var(--text-sm)',
+            color: 'var(--text-secondary)',
+          }}
+        >
+          {r.fromCache ? 'Cache' : 'Network'}
+        </span>
+      </DrawerField>
+
+      <DrawerField label="Resource Type">
+        <span
+          style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: 'var(--text-sm)',
+            color: 'var(--text-secondary)',
+            textTransform: 'capitalize',
+          }}
+        >
+          {r.type || '—'}
+        </span>
+      </DrawerField>
+
+      {r.error && (
+        <DrawerField label="Error">
+          <span
+            style={{
+              fontFamily: 'var(--font-mono)',
               fontSize: 'var(--text-xs)',
-              color: 'var(--text-muted)',
-              display: 'flex',
-              alignItems: 'center',
+              color: 'var(--health-error)',
+              wordBreak: 'break-word',
             }}
           >
-            {safePage} / {totalPages}
+            {r.error}
           </span>
-          <PaginationBtn
-            label="Next →"
-            disabled={safePage >= totalPages}
-            onClick={() => setPage(safePage + 1)}
-          />
-        </div>
+        </DrawerField>
       )}
-    </Section>
+
+      <DrawerField label="Request ID">
+        <span
+          style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: 'var(--text-xs)',
+            color: 'var(--text-muted)',
+          }}
+        >
+          {r.requestId}
+        </span>
+      </DrawerField>
+    </div>
+  );
+}
+
+function ConsoleDrawerContent({
+  data: entry,
+  startTime,
+}: {
+  data: ConsoleEntry;
+  startTime: number;
+}) {
+  const ls = CONSOLE_LEVEL_STYLES[entry.level.toLowerCase()] ?? DEFAULT_CONSOLE_LEVEL_STYLE;
+  const relMs = entry.timestamp - startTime;
+  const relStr = relMs > 0 ? `+${(relMs / 1000).toFixed(3)}s` : 'before load';
+
+  return (
+    <div>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 'var(--space-2)',
+          marginBottom: 'var(--space-4)',
+        }}
+      >
+        <span
+          style={{
+            display: 'inline-block',
+            padding: '2px 8px',
+            borderRadius: 'var(--radius-sm)',
+            fontSize: 'var(--text-xs)',
+            fontWeight: 700,
+            fontFamily: 'var(--font-mono)',
+            textTransform: 'uppercase',
+            background: ls.bg,
+            color: ls.color,
+          }}
+        >
+          {entry.level}
+        </span>
+        <span
+          style={{
+            fontSize: 'var(--text-xs)',
+            color: 'var(--text-muted)',
+            fontFamily: 'var(--font-mono)',
+          }}
+        >
+          {relStr} after page load
+        </span>
+      </div>
+
+      <DrawerField label="Category">
+        <span
+          style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: 'var(--text-xs)',
+            color: 'var(--text-secondary)',
+          }}
+        >
+          {entry.category || '—'}
+        </span>
+      </DrawerField>
+
+      <DrawerField label="Message">
+        <pre
+          style={{
+            margin: 0,
+            padding: 'var(--space-3)',
+            background: 'var(--bg-surface)',
+            border: '1px solid var(--border-subtle)',
+            borderRadius: 'var(--radius-md)',
+            fontFamily: 'var(--font-mono)',
+            fontSize: 'var(--text-xs)',
+            color: ls.color,
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-all',
+            lineHeight: 1.6,
+          }}
+        >
+          {entry.message}
+        </pre>
+      </DrawerField>
+
+      <DrawerField label="Timestamp">
+        <span
+          style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: 'var(--text-xs)',
+            color: 'var(--text-muted)',
+          }}
+        >
+          {new Date(entry.timestamp).toLocaleTimeString()}
+        </span>
+      </DrawerField>
+    </div>
   );
 }
 
 // ── Shared primitives ──────────────────────────────────────────────
-
-function PaginationBtn({
-  label,
-  disabled,
-  onClick,
-}: { label: string; disabled: boolean; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={onClick}
-      style={{
-        padding: '3px 10px',
-        borderRadius: 'var(--radius-sm)',
-        border: '1px solid var(--border-default)',
-        background: 'var(--bg-surface)',
-        color: disabled ? 'var(--text-muted)' : 'var(--text-secondary)',
-        fontSize: 'var(--text-xs)',
-        cursor: disabled ? 'default' : 'pointer',
-        opacity: disabled ? 0.5 : 1,
-      }}
-    >
-      {label}
-    </button>
-  );
-}
 
 function Section({ title, children }: { title: string; children: ComponentChildren }) {
   return (
@@ -1139,43 +1401,6 @@ function Section({ title, children }: { title: string; children: ComponentChildr
         {title}
       </div>
       {children}
-    </div>
-  );
-}
-
-function Stat({ label, value, color }: { label: string; value: string; color?: string }) {
-  return (
-    <div
-      style={{
-        background: 'var(--bg-surface)',
-        border: '1px solid var(--border-subtle)',
-        borderRadius: 'var(--radius-md)',
-        padding: 'var(--space-3)',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 4,
-      }}
-    >
-      <div
-        style={{
-          fontSize: 'var(--text-xs)',
-          color: 'var(--text-muted)',
-          textTransform: 'uppercase',
-          letterSpacing: '0.04em',
-        }}
-      >
-        {label}
-      </div>
-      <div
-        style={{
-          fontSize: 'var(--text-lg)',
-          fontWeight: 600,
-          color: color ?? 'var(--text-primary)',
-          fontVariantNumeric: 'tabular-nums',
-        }}
-      >
-        {value}
-      </div>
     </div>
   );
 }
@@ -1302,12 +1527,6 @@ function ThemeCycle({ current, onChange }: { current: Theme; onChange: (t: Theme
 }
 
 // ── Formatters ─────────────────────────────────────────────────────
-
-function ratingToHealth(rating: string): string {
-  if (rating === 'good') return 'good';
-  if (rating === 'needs-improvement') return 'warning';
-  return 'error';
-}
 
 function fmtVital(name: string, value: number): string {
   if (name === 'CLS') return value.toFixed(3);

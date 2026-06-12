@@ -51,6 +51,11 @@
   --console-info: #8a8aa8;
   --console-log: #eaeaf0;
 
+  /* Glass */
+  --glass-bg: rgba(30, 30, 38, 0.6);
+  --glass-border: rgba(255, 255, 255, 0.09);
+  --glass-shadow: 0 4px 24px rgba(0, 0, 0, 0.28);
+
   /* Scrollbar */
   --scrollbar-track: #0d0d10;
   --scrollbar-thumb: #2e2e3a;
@@ -97,6 +102,11 @@
   --console-info: #5a5a72;
   --console-log: #1a1a2e;
 
+  /* Glass */
+  --glass-bg: rgba(255, 255, 255, 0.55);
+  --glass-border: rgba(0, 0, 0, 0.08);
+  --glass-shadow: 0 4px 24px rgba(0, 0, 0, 0.12);
+
   /* Scrollbar */
   --scrollbar-track: #f5f5f7;
   --scrollbar-thumb: #d0d0da;
@@ -134,6 +144,9 @@
     --console-log: #1a1a2e;
     --scrollbar-track: #f5f5f7;
     --scrollbar-thumb: #d0d0da;
+    --glass-bg: rgba(255, 255, 255, 0.55);
+    --glass-border: rgba(0, 0, 0, 0.08);
+    --glass-shadow: 0 4px 24px rgba(0, 0, 0, 0.12);
   }
 }
 
@@ -166,6 +179,19 @@
   --dur-fast: 100ms;
   --dur: 150ms;
   --dur-slow: 300ms;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 4px rgba(0, 0, 0, 0.18);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.28);
+  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.38);
+
+  /* Console bar */
+  --console-bar-collapsed: 120px;
+  --console-bar-expanded: 40vh;
+
+  /* Extended spacing / radius */
+  --radius-xl: 16px;
+  --space-7: 32px;
 
   /* HealthRing */
   --ring-size: 88px;
